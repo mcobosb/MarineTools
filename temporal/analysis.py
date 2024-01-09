@@ -1137,7 +1137,7 @@ def dependencies(df: pd.DataFrame, param: dict):
     """
     logger.info(show_init_message())
 
-    logger.info("MULTIVARIATE DEPENDENCY")
+    logger.info("UNI/MULTIVARIATE & TEMPORAL DEPENDENCY")
     logger.info(
         "=============================================================================="
     )
