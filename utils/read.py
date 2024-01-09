@@ -237,13 +237,21 @@ def csv(
                     date_parser=date_parser,
                 )
             except:
-                data = pd.read_csv(
-                    filename,
-                    sep=sep,
-                    parse_dates=[0],
-                    index_col=[0],
-                    date_parser=date_parser,
-                )
+                if date_parser == None:
+                    data = pd.read_csv(
+                        filename,
+                        sep=sep,
+                        parse_dates=[0],
+                        index_col=[0],
+                    )
+                else:
+                    data = pd.read_csv(
+                        filename,
+                        sep=sep,
+                        parse_dates=[0],
+                        index_col=[0],
+                        date_parser=date_parser,
+                    )
     data = data[data != no_data_values]
     return data
 
@@ -445,8 +453,11 @@ def kmz(fname, joint=False):
 
     from lxml import etree
 
-    kmz = ZipFile(fname, "r")
-    kml_file = kmz.open("doc.kml", "r")
+    if fname.endswith("kmz"):
+        kmz = ZipFile(fname, "r")
+        kml_file = kmz.open("doc.kml", "r")
+    else:
+        kml_file = open(fname, "r")
 
     try:
         # Se procesa el fichero kml
@@ -592,7 +603,6 @@ def shp(fname: str, joint: bool = False, var_: str = None):
                     )
                 )
             elif type_ == "LineString":
-
                 xy.append(np.asarray(shape_file["geometry"][k].coords.xy).T)
                 # xy.append(
                 #     np.asarray(
@@ -686,3 +696,42 @@ def mat(file_name: str, var_: str = "x", julian: bool = False):
     df = pd.DataFrame({"Q": data[var_][:, 1]}, index=date)
     df.index = df.index.tz_localize(None)
     return df
+
+
+def pdf(fileName, encoding="latin-1", table=False, guess=False, area=None):
+    """_summary_
+
+    Args:
+        fileName (_type_): _description_
+        encoding (str, optional): _description_. Defaults to "latin-1".
+        table (bool, optional): _description_. Defaults to False.
+        area (_type_, optional): _description_. Defaults to None.
+
+    Returns:
+        _type_: _description_
+    """
+
+    if not table:
+        import PyPDF2
+
+        reader = PyPDF2.PdfFileReader(fileName)
+        n_pages = len(pdf_reader.pages)
+        # TODO: habilitar la lectura multipágina
+        logger.info(
+            "The file contains " + str(n_pages) + ". Obtaining just the first page."
+        )
+        page = reader.getPage(0)
+        data = page.extractText()
+    else:
+        from tabula import read_pdf
+
+        data = read_pdf(
+            fileName,
+            guess=guess,
+            pages=1,
+            stream=True,
+            encoding=encoding,
+            area=area,
+        )
+
+    return data
