@@ -178,12 +178,12 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         1,
     )
 
-    logger.info("MARGINAL STATISTICAL FIT")
-    logger.info(
-        "=============================================================================="
-    )
     # Make the full analysis if "mode" is not given or a specify mode wheter "mode" is given
     if not parameters["mode"]:
+        logger.info("MARGINAL STATISTICAL FIT")
+        logger.info(
+            "=============================================================================="
+        )
         # Write the information about the variable, PMs and method
         term = (
             "Stationary fit of "
@@ -673,7 +673,7 @@ def check_marginal_params(param: dict):
         param["folder_name"] += "/marginalfit/"
 
     if not "scale-shift" in param.keys():
-        param["scale-shift"] = True
+        param["scale-shift"] = False
 
     if not param["scale-shift"]:
         param["scale"] = 1
