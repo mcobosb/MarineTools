@@ -7,13 +7,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.stats as st
-from pandas.plotting import register_matplotlib_converters
-
 from marinetools.graphics.utils import handle_axis, labels, show
 from marinetools.temporal.analysis import storm_properties
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.temporal.fdist.copula import Copula
 from marinetools.utils import auxiliar
+from matplotlib import ticker
+from matplotlib.colors import LogNorm
+from pandas.plotting import register_matplotlib_converters
 
 """This file is part of MarineTools.
 
@@ -55,14 +56,14 @@ def plot_mda(data, cases, variables, title=None, ax=None, fname=None):
     """
 
     if len(variables) == 1:
-        ax = handle_axis(ax)
+        _, ax = handle_axis(ax)
         ax.plot(data[variables[0]].values, marker=".", alpha=0.05)
         ax.plot(cases[variables[0]].values, color="k", marker="o")
         ax.set_xlabel("time")
         ax.set_ylabel(labels(variables[0]))
 
     elif len(variables) == 2:
-        ax = handle_axis(ax)
+        _, ax = handle_axis(ax)
 
     elif len(variables) == 3:
         ax = handle_axis(ax, dim=3)
@@ -134,7 +135,7 @@ def timeseries(data: pd.DataFrame, variable: str, ax=None, file_name: str = None
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax.plot(data.loc[:, variable])
     try:
         ax.set_ylabel(labels(variable))
@@ -247,7 +248,7 @@ def cadency(data, label="", ax=None, legend=False, fname=None):
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax.plot(
         data.index[1:], (data.index[1:] - data.index[:-1]).seconds / 3600, label=label
     )
@@ -333,7 +334,7 @@ def plot_cdf(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     if not isinstance(label, str):
         label = labels(var)
 
@@ -455,7 +456,7 @@ def nonstationary_percentiles(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     data["n"] = (
         (data.index.dayofyear + data.index.hour / 24.0 - 1)
         / pd.to_datetime(
@@ -582,7 +583,7 @@ def scatter_error_dependencies(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     if isinstance(variables, str):
         variables = [variables]
@@ -732,7 +733,7 @@ def corr(data: pd.DataFrame, lags: int = 24, ax=None, file_name: str = None):
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax.acorr(data, usevlines=False, maxlags=lags, normed=True, lw=2)
 
     ax.set_xlabel(r"Lags (hr)")
@@ -976,7 +977,7 @@ def nonstationary_cdf(
         pemp=pemp,
     )
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     ax.set_prop_cycle("color", [plt.cm.winter(i) for i in np.linspace(0, 1, len(pemp))])
     col_per = list()
@@ -1264,7 +1265,7 @@ def nonstat_cdf_ensemble(
         pemp=pemp,
     )
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     ax.set_prop_cycle("color", [plt.cm.winter(i) for i in np.linspace(0, 1, len(pemp))])
     col_per = list()
@@ -1530,7 +1531,7 @@ def soujourn(data_1, data_2, variable, threshold, ax=None, case="above", fname=N
     else:
         raise ValueError("Case options are above or below. {} given.".format(case))
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax = plot_cdf(
         info_1,
         var_,
@@ -1862,7 +1863,7 @@ def ensemble_acorr(
         ax.matplotlib: the figure
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     color = ["royalblue", "lightsteelblue", "lightgrey", "darkgoldenrod", "forestgreen"]
 
@@ -1908,7 +1909,7 @@ def plot_copula(copula, labels=[], nbins=8, ax=None, fname=None):
         The plot
     """
     # _, ax = plt.subplots(figsize=(4, 4))
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     # plt.subplots_adjust(left=0.2)
 
     data1, data2 = copula.X, copula.Y
@@ -1971,7 +1972,15 @@ def plot_copula(copula, labels=[], nbins=8, ax=None, fname=None):
     return ax
 
 
-def heatmap(data: np.ndarray, param: dict, type_: str, file_name: str = None):
+def heatmap(
+    data: np.ndarray,
+    param: dict,
+    cmap: str ="bwr_r",
+    type_: str = None,
+    file_name: str = None,
+    ax=None,
+    minmax=False,
+):
     """
     Create a heatmap from a numpy array and two lists of labels.
 
@@ -1982,10 +1991,15 @@ def heatmap(data: np.ndarray, param: dict, type_: str, file_name: str = None):
             matrix and Q for the covariance matrix
         * file_name: name of the oputput file
     """
-    fig, ax = plt.subplots()
+    fig, ax = handle_axis(ax)
 
     # Plot the heatmap
-    im = ax.imshow(data)
+    if minmax=="minimax":
+        im = ax.imshow(data, cmap=cmap, vmin=np.min(data), vmax=np.max(data))
+    elif isinstance(minmax, list):
+        im = ax.imshow(data, cmap=cmap, vmin=minmax[0], vmax=minmax[1])
+    elif minmax=="log":
+        im = ax.imshow(data, cmap=cmap, norm=LogNorm(vmin=0.001, vmax=10))
 
     # We want to show all ticks ...
     ax.set_xticks(np.arange(np.asarray(data).shape[1]))
@@ -2000,21 +2014,21 @@ def heatmap(data: np.ndarray, param: dict, type_: str, file_name: str = None):
             column_labels.append(
                 labels(param["vars"][i % len(data)]) + " (t-" + str(j) + ")"
             )
+        row_labels = []
+        for key_ in param["vars"]:
+            row_labels.append(labels(key_))
     else:
-        column_labels = labels(param["vars"])
-
-    row_labels = []
-    for key_ in param["vars"]:
-        row_labels.append(labels(key_))
+        column_labels = param["columns"]
+        row_labels = param["rows"]
 
     ax.set_xticklabels(column_labels)
     ax.set_yticklabels(row_labels)
 
     # Let the horizontal axes labeling appear on top.
-    ax.tick_params(top=True, bottom=False, labeltop=True, labelbottom=False)
+    ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
 
     # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=-30, ha="right", rotation_mode="anchor")
+    plt.setp(ax.get_xticklabels(), rotation=0, ha="right", rotation_mode="anchor")
 
     # Turn spines off and create white grid.
     for edge, spine in ax.spines.items():
@@ -2049,7 +2063,7 @@ def qqplot(
     cdf1 = auxiliar.ecdf(df1, variable, noperc)
     cdf2 = auxiliar.ecdf(df2, variable, noperc)
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     if not isinstance(label, str):
         label = labels(variable)
@@ -2155,9 +2169,9 @@ def annotate_heatmap(
 
     # Normalize the threshold to the images color range.
     if threshold is not None:
-        threshold = im.norm(threshold)
+        threshold = threshold
     else:
-        threshold = im.norm(data.max()) / 2.0
+        threshold = np.max([abs(np.percentile(data.data, 10)), np.percentile(data.data, 90)])
 
     # Set default alignment to center, but allow it to be
     # overwritten by textkw.
@@ -2173,7 +2187,7 @@ def annotate_heatmap(
     texts = []
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
-            kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
+            kw.update(color=textcolors[abs(data.data[i, j]) > threshold])
             text = im.axes.text(j, i, valfmt(data[i, j], None), **kw)
             texts.append(text)
 
