@@ -62,8 +62,9 @@ def handle_axis(
 
         if row_plots + col_plots > 2:
             ax = ax.flatten()
-
-    return ax
+    else:
+        fig = None
+    return fig, ax
 
 
 def labels(variable):
