@@ -191,12 +191,11 @@ def csv(
                     filename,
                     sep=sep,
                     index_col=[0],
-                    engine="python",
                     encoding=encoding,
                 )
             except:
                 data = pd.read_csv(
-                    filename, sep=sep, engine="python", encoding=encoding
+                    filename, sep=sep, encoding=encoding
                 )
 
         if non_natural_date:
@@ -234,7 +233,6 @@ def csv(
                     sep=sep,
                     parse_dates=["date"],
                     index_col=["date"],
-                    date_parser=date_parser,
                 )
             except:
                 if date_parser == None:
