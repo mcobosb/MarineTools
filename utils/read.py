@@ -145,7 +145,7 @@ def PdE(file_name: str, new: bool = False):
 def csv(
     file_name: str,
     ts: bool = False,
-    date_parser=None,
+    date_format=None,
     sep: str = ",",
     encoding: str = "utf-8",
     non_natural_date: bool = False,
@@ -216,7 +216,7 @@ def csv(
                     parse_dates=[0],
                     index_col=[0],
                     compression="zip",
-                    date_parser=date_parser,
+                    date_format=date_format,
                 )
             except:
                 data = pd.read_csv(
@@ -224,7 +224,7 @@ def csv(
                     sep=sep,
                     parse_dates=[0],
                     index_col=[0],
-                    date_parser=date_parser,
+                    date_format=date_format,
                 )
                 logger.info("{}, It is not a zip file.".format(str(filename) + ".csv"))
         else:
@@ -234,10 +234,10 @@ def csv(
                     sep=sep,
                     parse_dates=["date"],
                     index_col=["date"],
-                    date_parser=date_parser,
+                    date_format=date_format,
                 )
             except:
-                if date_parser == None:
+                if date_format == None:
                     data = pd.read_csv(
                         filename,
                         sep=sep,
@@ -250,7 +250,7 @@ def csv(
                         sep=sep,
                         parse_dates=[0],
                         index_col=[0],
-                        date_parser=date_parser,
+                        date_format=date_format,
                     )
     data = data[data != no_data_values]
     return data
