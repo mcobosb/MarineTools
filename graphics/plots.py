@@ -12,7 +12,6 @@ from marinetools.temporal.analysis import storm_properties
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.temporal.fdist.copula import Copula
 from marinetools.utils import auxiliar
-from matplotlib import ticker
 from matplotlib.colors import LogNorm
 from pandas.plotting import register_matplotlib_converters
 
@@ -1074,9 +1073,9 @@ def nonstationary_cdf(
 
     ax.grid()
 
+    box = ax.get_position()
     if legend:
         # Shrink current axis
-        box = ax.get_position()
         if param:
             if legend_loc == "bottom":
                 ax.set_position([box.x0, box.y0, box.width, box.height])
@@ -1195,6 +1194,11 @@ def nonstationary_cdf(
         ax.set_position(
             [box.x0, box.y0 + box.height * 0.1, box.width * 0.6, box.height * 0.9]
         )
+    for axis in ["top", "bottom", "left", "right"]:
+        ax.spines[axis].set_linewidth(2)
+    ax.xaxis.set_tick_params(width=2)
+    ax.yaxis.set_tick_params(width=2)
+
     show(file_name)
 
     return ax
@@ -1975,7 +1979,7 @@ def plot_copula(copula, labels=[], nbins=8, ax=None, fname=None):
 def heatmap(
     data: np.ndarray,
     param: dict,
-    cmap: str ="bwr_r",
+    cmap: str = "bwr_r",
     type_: str = None,
     file_name: str = None,
     ax=None,
@@ -1994,11 +1998,11 @@ def heatmap(
     fig, ax = handle_axis(ax)
 
     # Plot the heatmap
-    if minmax=="minimax":
+    if minmax == "minimax":
         im = ax.imshow(data, cmap=cmap, vmin=np.min(data), vmax=np.max(data))
     elif isinstance(minmax, list):
         im = ax.imshow(data, cmap=cmap, vmin=minmax[0], vmax=minmax[1])
-    elif minmax=="log":
+    elif minmax == "log":
         im = ax.imshow(data, cmap=cmap, norm=LogNorm(vmin=0.001, vmax=10))
 
     # We want to show all ticks ...
@@ -2041,7 +2045,7 @@ def heatmap(
 
     annotate_heatmap(im, valfmt="{x:.2f}")
 
-    fig.tight_layout()
+    # fig.tight_layout()
     show(file_name)
 
     return
@@ -2171,7 +2175,9 @@ def annotate_heatmap(
     if threshold is not None:
         threshold = threshold
     else:
-        threshold = np.max([abs(np.percentile(data.data, 10)), np.percentile(data.data, 90)])
+        threshold = np.max(
+            [abs(np.percentile(data.data, 10)), np.percentile(data.data, 90)]
+        )
 
     # Set default alignment to center, but allow it to be
     # overwritten by textkw.
