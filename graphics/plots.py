@@ -922,11 +922,13 @@ def nonstationary_cdf(
     log: bool = False,
     file_name: str = None,
     label: str = None,
+    lst="-", 
     legend: bool = True,
     legend_loc: str = "right",
     title: str = None,
     date_axis: bool = False,
     pemp: list = None,
+    emp: bool = True
 ):
     """Plots the time variation of given percentiles of data and theoretical function if provided
 
@@ -940,11 +942,13 @@ def nonstationary_cdf(
         * log: logarhitmic scale
         * file_name (string, optional): name of the file to save the plot or None to see plots on the screen. Defaults to None.
         * label: string with the label
+        * lst (string, optional): linestyle for theoretical distribution.
         * legend: plot the legend
         * legend_loc: locate the legend
         * title: draw the title
         * date_axis: create a secondary axis with time
         * pemp: list with percentiles to be plotted
+        * emp (bool, optional): if True plot the empirical nonst distribution 
 
     Returns:
         * ax (matplotlib.axis): axis for the plot or None
@@ -968,50 +972,52 @@ def nonstationary_cdf(
 
     dt = 366
     n = np.linspace(0, 1, dt)
-    xp, pemp = auxiliar.nonstationary_ecdf(
-        data,
-        variable,
-        wlen=daysWindowsLength / (365.25 * T),
-        equal_windows=equal_windows,
-        pemp=pemp,
-    )
+    if emp:
+        xp, pemp = auxiliar.nonstationary_ecdf(
+            data,
+            variable,
+            wlen=daysWindowsLength / (365.25 * T),
+            equal_windows=equal_windows,
+            pemp=pemp,
+        )
 
     _, ax = handle_axis(ax)
 
     ax.set_prop_cycle("color", [plt.cm.winter(i) for i in np.linspace(0, 1, len(pemp))])
-    col_per = list()
+    if emp:
+        col_per = list()
 
-    if len(xp.index.unique()) > 60:
-        marker, ms, markeredgewidth = ".", 8, 1.5
-    else:
-        marker, ms, markeredgewidth = "+", 4, 1.5
-
-    for j, i in enumerate(pemp):
-        if isinstance(param, dict):
-            if param["transform"]["plot"]:
-                xp[i], _ = stf.transform(xp[[i]], param)
-                xp[i] -= param["transform"]["min"]
-                if "scale" in param:
-                    xp[i] = xp[i] / param["scale"]
-        if log:
-            p = ax.semilogy(
-                xp[i],
-                marker=marker,
-                ms=ms,
-                markeredgewidth=markeredgewidth,
-                lw=0,
-                label=str(i),
-            )
+        if len(xp.index.unique()) > 60:
+            marker, ms, markeredgewidth = ".", 8, 1.5
         else:
-            p = ax.plot(
-                xp[i],
-                marker=marker,
-                ms=ms,
-                markeredgewidth=markeredgewidth,
-                lw=0,
-                label=str(i),
-            )
-        col_per.append(p[0].get_color())
+            marker, ms, markeredgewidth = "+", 4, 1.5
+
+        for j, i in enumerate(pemp):
+            if isinstance(param, dict):
+                if param["transform"]["plot"]:
+                    xp[i], _ = stf.transform(xp[[i]], param)
+                    xp[i] -= param["transform"]["min"]
+                    if "scale" in param:
+                        xp[i] = xp[i] / param["scale"]
+            if log:
+                p = ax.semilogy(
+                    xp[i],
+                    marker=marker,
+                    ms=ms,
+                    markeredgewidth=markeredgewidth,
+                    lw=0,
+                    label=str(i),
+                )
+            else:
+                p = ax.plot(
+                    xp[i],
+                    marker=marker,
+                    ms=ms,
+                    markeredgewidth=markeredgewidth,
+                    lw=0,
+                    label=str(i),
+                )
+            col_per.append(p[0].get_color())
 
     if isinstance(param, dict):
         if param["status"] == "Distribution models fitted succesfully":
@@ -1042,30 +1048,60 @@ def nonstationary_cdf(
                     res[param["var"]] = res[param["var"]] * param["scale"]
 
                 if log:
-                    ax.semilogy(
-                        res[param["var"]].index,
-                        res[param["var"]].values,
-                        color=col_per[i],
-                        lw=2,
-                        label=str(j),
-                    )
-                else:
-                    if param["circular"]:
-                        ax.plot(
+                    if emp:
+                        ax.semilogy(
                             res[param["var"]].index,
-                            np.rad2deg(res[param["var"]].values),
+                            res[param["var"]].values,
                             color=col_per[i],
+                            ls=lst,
                             lw=2,
                             label=str(j),
                         )
                     else:
-                        ax.plot(
+                        ax.semilogy(
                             res[param["var"]].index,
                             res[param["var"]].values,
-                            color=col_per[i],
+                            ls=lst,
                             lw=2,
                             label=str(j),
                         )
+                else:
+                    if param["circular"]:
+                        if emp:
+                            ax.plot(
+                                res[param["var"]].index,
+                                np.rad2deg(res[param["var"]].values),
+                                color=col_per[i],
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
+                        else:
+                            ax.plot(
+                                res[param["var"]].index,
+                                np.rad2deg(res[param["var"]].values),
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
+                    else:
+                        if emp:
+                            ax.plot(
+                                res[param["var"]].index,
+                                res[param["var"]].values,
+                                color=col_per[i],
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
+                        else:
+                            ax.plot(
+                                res[param["var"]].index,
+                                res[param["var"]].values,
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
         else:
             raise ValueError(
                 "Model was not fit successfully. Look at the marginal fit."

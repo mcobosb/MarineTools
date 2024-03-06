@@ -191,7 +191,6 @@ def csv(
                     filename,
                     sep=sep,
                     index_col=[0],
-                    engine="python",
                     encoding=encoding,
                 )
             except:
