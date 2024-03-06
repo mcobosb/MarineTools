@@ -4,10 +4,9 @@ import numpy as np
 import pandas as pd
 import scipy.stats as st
 from loguru import logger
+from marinetools.utils import auxiliar, read, save
 from scipy.integrate import quad
 from scipy.optimize import differential_evolution, dual_annealing, minimize, shgo
-
-from marinetools.utils import auxiliar, read, save
 
 warnings.filterwarnings("ignore")
 
@@ -965,14 +964,11 @@ def nllf(par, df, imod, param, t_expans):
                     #         + np.log(esc[0]),
                     #     ]
                     # )
-                    lpdf += (
-                        param["fun"][0].logpdf(
-                            df[0].loc[iltail, "u1"] - df[0].loc[iltail, param["var"]],
-                            df[0].loc[iltail, "s"],
-                            df[0].loc[iltail, "l"],
-                        )
-                        + np.log(esc[0])
-                    )
+                    lpdf += param["fun"][0].logpdf(
+                        df[0].loc[iltail, "u1"] - df[0].loc[iltail, param["var"]],
+                        df[0].loc[iltail, "s"],
+                        df[0].loc[iltail, "l"],
+                    ) + np.log(esc[0])
                 else:
                     # lpdf = np.hstack(
                     #     [
@@ -987,15 +983,12 @@ def nllf(par, df, imod, param, t_expans):
                     #         + np.log(esc[0]),
                     #     ]
                     # )
-                    lpdf += (
-                        param["fun"][0].logpdf(
-                            df[0].loc[iltail, "u1"] - df[0].loc[iltail, param["var"]],
-                            df[0].loc[iltail, "s"],
-                            df[0].loc[iltail, "l"],
-                            df[0].loc[iltail, "e"],
-                        )
-                        + np.log(esc[0])
-                    )
+                    lpdf += param["fun"][0].logpdf(
+                        df[0].loc[iltail, "u1"] - df[0].loc[iltail, param["var"]],
+                        df[0].loc[iltail, "s"],
+                        df[0].loc[iltail, "l"],
+                        df[0].loc[iltail, "e"],
+                    ) + np.log(esc[0])
 
                 if param["no_param"][1] == 2:
                     # lpdf = np.hstack(
@@ -1045,14 +1038,11 @@ def nllf(par, df, imod, param, t_expans):
                     #         + np.log(esc[2]),
                     #     ]
                     # )
-                    lpdf += (
-                        param["fun"][2].logpdf(
-                            df[2].loc[iutail, param["var"]] - df[2].loc[iutail, "u2"],
-                            df[2].loc[iutail, "s"],
-                            df[2].loc[iutail, "l"],
-                        )
-                        + np.log(esc[2])
-                    )
+                    lpdf += param["fun"][2].logpdf(
+                        df[2].loc[iutail, param["var"]] - df[2].loc[iutail, "u2"],
+                        df[2].loc[iutail, "s"],
+                        df[2].loc[iutail, "l"],
+                    ) + np.log(esc[2])
                 else:
                     # lpdf = np.hstack(
                     #     [
@@ -1067,15 +1057,12 @@ def nllf(par, df, imod, param, t_expans):
                     #         + np.log(esc[2]),
                     #     ]
                     # )
-                    lpdf += (
-                        param["fun"][2].logpdf(
-                            df[2].loc[iutail, param["var"]] - df[2].loc[iutail, "u2"],
-                            df[2].loc[iutail, "s"],
-                            df[2].loc[iutail, "l"],
-                            df[2].loc[iutail, "e"],
-                        )
-                        + np.log(esc[2])
-                    )
+                    lpdf += param["fun"][2].logpdf(
+                        df[2].loc[iutail, param["var"]] - df[2].loc[iutail, "u2"],
+                        df[2].loc[iutail, "s"],
+                        df[2].loc[iutail, "l"],
+                        df[2].loc[iutail, "e"],
+                    ) + np.log(esc[2])
 
             if (np.isnan(lpdf).any()) | (np.isinf(lpdf).any()):
                 nllf = 1e10
@@ -1180,15 +1167,15 @@ def nllf(par, df, imod, param, t_expans):
                             ]
                         )
 
-            if np.isnan(lpdf).any():
-                nllf = 1e10
+            if np.isnan(lpdf).any() | np.isinf(lpdf).any():
+                nllf = 1e10  # * (sum(np.isnan(lpdf) + sum(np.isinf(lpdf))))
             else:
                 if lpdf.size == 1:
                     nllf = 1e10
                 else:
-                    nllf += -np.sum(lpdf)
+                    nllf += -np.sum(lpdf * param["weighted"]["values"])
 
-    # print(nllf, par)
+    # print(nllf)
     return nllf
 
 
@@ -2470,8 +2457,8 @@ class wrap_norm(st.rv_continuous):
         n_ = np.tile(self.n_, (self.len, 1)).T
 
         w = np.tile(np.exp(1j * np.pi * (x - self.loc) / (2 * np.pi)), (self.no, 1))
-        q = np.tile(np.exp(-self.scale ** 2 / 2), (self.no, 1))
-        f = (w ** 2) ** n_ * q ** (n_ ** 2)
+        q = np.tile(np.exp(-self.scale**2 / 2), (self.no, 1))
+        f = (w**2) ** n_ * q ** (n_**2)
 
         f = np.sum(f, axis=0)
         return np.abs(f)
