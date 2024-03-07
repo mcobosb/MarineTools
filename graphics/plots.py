@@ -7,13 +7,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.stats as st
-from pandas.plotting import register_matplotlib_converters
-
 from marinetools.graphics.utils import handle_axis, labels, show
 from marinetools.temporal.analysis import storm_properties
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.temporal.fdist.copula import Copula
 from marinetools.utils import auxiliar
+from pandas.plotting import register_matplotlib_converters
 
 """This file is part of MarineTools.
 
@@ -1060,7 +1059,7 @@ def nonstationary_cdf(
                         )
                     else:
                         ax.plot(
-                            res[param["var"]].index,
+                            res[param["var"]].index.values,
                             res[param["var"]].values,
                             color=col_per[i],
                             lw=2,
