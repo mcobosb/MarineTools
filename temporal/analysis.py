@@ -1342,8 +1342,8 @@ def varfit(data: np.ndarray, order: int):
         * par_dt (dict): parameter of the temporal dependency using VAR model
     """
 
-    from statsmodels.tsa.api import VAR
     from statsmodels.tsa.ar_model import AutoReg as AR
+    from statsmodels.tsa.vector_ar.var_model import VAR
 
     # Create the list of output parameters
     data_ = data.values.T
