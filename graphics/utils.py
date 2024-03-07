@@ -51,7 +51,7 @@ def handle_axis(
 
     if not ax:
         if dim == 2:
-            _, ax = plt.subplots(row_plots, col_plots, figsize=figsize, **kwargs)
+            fig, ax = plt.subplots(row_plots, col_plots, figsize=figsize, **kwargs)
         elif not projection is None:
             ax = plt.axes(
                 projection=projection
@@ -62,8 +62,9 @@ def handle_axis(
 
         if row_plots + col_plots > 2:
             ax = ax.flatten()
-
-    return ax
+    else:
+        fig = None
+    return fig, ax
 
 
 def labels(variable):

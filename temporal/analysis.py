@@ -80,6 +80,8 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
             - giter: number of global iterations. Repeat the minimization algorithm
             changing the initial guess
             - scale: a boolean for scaling the initial data (True) or not (False),
+            - 'weighted': a boolean for weighted data along the time axis. A low number
+            of values at some times might give incongruent results.
             - 'mode': a list with the mode to be computed independently,
             - 'par': initial guess of the parameters for the mode given
             - 'folder_name': string where the folder where the analysis will be saved
@@ -178,12 +180,28 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         1,
     )
 
-    logger.info("MARGINAL STATISTICAL FIT")
-    logger.info(
-        "=============================================================================="
-    )
+    # Compute the tempora weights if it is required
+    if parameters["weighted"]["make"]:
+        if parameters["weighted"]["window"] == "month":
+            counts = df.groupby("n").count()  # TODO: con pesos promedio mensuales.
+        else:
+            counts = df.groupby("n").count()
+            nmean = counts.mean()
+            weights = nmean / counts
+            df["counts"] = np.nan
+            for n in counts.index:
+                nn = len(df.loc[df["n"] == n, "counts"])
+                df.loc[df["n"] == n, "counts"] = np.ones(nn) * weights.loc[n].values
+        parameters["weighted"]["values"] = df["counts"]
+    else:
+        parameters["weighted"]["values"] = 1
+
     # Make the full analysis if "mode" is not given or a specify mode wheter "mode" is given
     if not parameters["mode"]:
+        logger.info("MARGINAL STATISTICAL FIT")
+        logger.info(
+            "=============================================================================="
+        )
         # Write the information about the variable, PMs and method
         term = (
             "Stationary fit of "
@@ -278,29 +296,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     auxiliar.mkdir(parameters["folder_name"])
 
     if not "file_name" in parameters.keys():
-        filename = parameters["var"] + "_" + str(parameters["fun"][0])
-        for i in range(1, parameters["no_fun"]):
-            filename += "_" + str(parameters["fun"][i])
-        filename += "_genpareto" * parameters["reduction"]
+        generate_outputfilename(parameters)
+    else:
+        parameters["file_name"] = parameters["folder_name"] + parameters["file_name"]
 
-        # for i in parameters["ws_ps"]:
-        # filename += "_" + str(i)
-
-        filename += "_st_" * (not parameters["non_stat_analysis"])
-        filename += "_nonst" * parameters["non_stat_analysis"]
-
-        filename += "_" + str(parameters["basis_period"][0])
-
-        filename += "_" + parameters["basis_function"]["method"]
-        if "no_terms" in parameters["basis_function"].keys():
-            filename += "_" + str(parameters["basis_function"]["no_terms"])
-        else:
-            filename += "_" + str(parameters["basis_function"]["degree"])
-        filename += "_" + parameters["optimization"]["method"]
-
-        filename = parameters["folder_name"] + filename
-        parameters["file_name"] = filename
-
+    del parameters["weighted"]["values"]
     save.to_json(parameters, parameters["file_name"])
 
     # Return the dictionary with the parameters of the analysis
@@ -514,9 +514,12 @@ def check_marginal_params(param: dict):
             param["optimization"]["maxiter"] = 1e2
             param["optimization"]["ftol"] = 1e-4
         else:
-            param["optimization"]["eps"] = 1e-7
-            param["optimization"]["maxiter"] = 1e2
-            param["optimization"]["ftol"] = 1e-4
+            if not "eps" in param["optimization"].keys():
+                param["optimization"]["eps"] = 1e-7
+            if not "maxiter" in param["optimization"].keys():
+                param["optimization"]["maxiter"] = 1e2
+            if not "ftol" in param["optimization"].keys():
+                param["optimization"]["ftol"] = 1e-4
 
     if not "method" in param["optimization"]:
         param["optimization"]["method"] = "SLSQP"
@@ -612,17 +615,9 @@ def check_marginal_params(param: dict):
     # Check if the variable is circular or linear
     if param["type"] == "circular":
         param["circular"] = True
-        logger.info(
-            "{} - Type 'circular' is given. Assuming that the variable is circular.".format(
-                str(k)
-            )
-        )
+        logger.info("{} - Type 'circular' is set to True.".format(str(k)))
     else:
-        logger.info(
-            "{} - Type 'circular' is not given. Assuming that the variable is not circular.".format(
-                str(k)
-            )
-        )
+        logger.info("{} - Type 'circular' is set to False.".format(str(k)))
         param["circular"] = False
     k += 1
 
@@ -673,11 +668,36 @@ def check_marginal_params(param: dict):
         param["folder_name"] += "/marginalfit/"
 
     if not "scale-shift" in param.keys():
-        param["scale-shift"] = True
+        param["scale-shift"] = False
 
     if not param["scale-shift"]:
         param["scale"] = 1
         param["shift"] = 0
+
+    if not "weighted" in param.keys():
+        param["weighted"] = {}
+        param["weighted"]["make"] = False
+    else:
+        if not "make" in param["weighted"].keys():
+            param["weighted"]["make"] = False
+        elif isinstance(param["weighted"]["make"], bool):
+            logger.info("{} - Weighted data along time is set to True.".format(str(k)))
+            k += 1
+            if not "window" in param["weighted"]:
+                param["weighted"]["window"] = "timestep"
+            elif not (
+                (param["weighted"]["window"] == "timestep")
+                | (param["weighted"]["window"] == "month")
+            ):
+                raise ValueError("Weighted window options are 'timestep' or 'month'.")
+            logger.info(
+                "{} - Weighted window for every {}.".format(
+                    str(k), param["weighted"]["window"]
+                )
+            )
+            k += 1
+        else:
+            raise ValueError("Weighted options are True or False.")
 
     if k == 1:
         logger.info("None.")
@@ -1137,7 +1157,7 @@ def dependencies(df: pd.DataFrame, param: dict):
     """
     logger.info(show_init_message())
 
-    logger.info("MULTIVARIATE DEPENDENCY")
+    logger.info("UNI/MULTIVARIATE & TEMPORAL DEPENDENCY")
     logger.info(
         "=============================================================================="
     )
@@ -1588,3 +1608,35 @@ def iso_rmse(
         rmse.loc[j] = auxiliar.rmse(xp[j], theoretical[j])
 
     return rmse
+
+
+def generate_outputfilename(parameters):
+    """_summary_
+
+    Args:
+        parameters (_type_): _description_
+    """
+    
+    filename = parameters["var"] + "_" + str(parameters["fun"][0])
+    for i in range(1, parameters["no_fun"]):
+        filename += "_" + str(parameters["fun"][i])
+    filename += "_genpareto" * parameters["reduction"]
+
+    # for i in parameters["ws_ps"]:
+    # filename += "_" + str(i)
+
+    filename += "_st_" * (not parameters["non_stat_analysis"])
+    filename += "_nonst" * parameters["non_stat_analysis"]
+
+    filename += "_" + str(parameters["basis_period"][0])
+
+    filename += "_" + parameters["basis_function"]["method"]
+    if "no_terms" in parameters["basis_function"].keys():
+        filename += "_" + str(parameters["basis_function"]["no_terms"])
+    else:
+        filename += "_" + str(parameters["basis_function"]["degree"])
+    filename += "_" + parameters["optimization"]["method"]
+
+    filename = parameters["folder_name"] + filename
+    parameters["file_name"] = filename
+    return

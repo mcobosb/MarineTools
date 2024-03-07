@@ -22,6 +22,7 @@ def folders_routes(params, stretch, str_index, simulation=False):
     # Create folder and file routes
     # -----------------------------------------------------------------------------------
     if simulation:
+        # TODO: paths from a file
         params["inputFolder"] = Path(
             "C:/Users/Usuario/Desktop/CoastalME paper/"
             + params["rootFolder"].replace("ñ", "n")
@@ -71,9 +72,7 @@ def folders_routes(params, stretch, str_index, simulation=False):
         "seaStates_" + stretch.replace("-", "_").replace("ñ", "n") + ".dat"
     )
     params["cmeSeastates"] = params["inputFolder"] / params["seastatesFilename"]
-    params["cmeLocationSeastates"] = (
-        "GIS_files/" + params["seastatesLocation"] + ".shp"
-    )
+    params["cmeLocationSeastates"] = "GIS_files/" + params["seastatesLocation"] + ".shp"
     # params["cmeLocationSeastates"] = params["seastatesLocation"] + ".shp"
 
     if not simulation:
@@ -1513,7 +1512,6 @@ def main_text(param):
 
 
 def cme_info():
-
     # Files that can be saved if user specifies
     # RASTER_AVG_SEA_DEPTH_NAME = "avg_sea_depth"
     # RASTER_AVG_WAVE_HEIGHT_NAME = "avg_wave_height"

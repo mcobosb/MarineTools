@@ -807,8 +807,8 @@ def osm_image(
         ax.set_title(title)
 
     if not bEpsg:
-        ax.set_xlabel(r"\textbf{x-coordinate (m)}")
-        ax.set_ylabel(r"\textbf{y-coordinate (m)}")
+        ax.set_xlabel(r"\textbf{x (m)}")
+        ax.set_ylabel(r"\textbf{y (m)}")
     else:
         ax.set_xlabel(r"\textbf{latitude ($\mathbf{^o}$)")
         ax.set_ylabel(r"\textbf{longitude ($\mathbf{^o}$)")

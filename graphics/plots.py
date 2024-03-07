@@ -54,14 +54,14 @@ def plot_mda(data, cases, variables, title=None, ax=None, fname=None):
     """
 
     if len(variables) == 1:
-        ax = handle_axis(ax)
+        _, ax = handle_axis(ax)
         ax.plot(data[variables[0]].values, marker=".", alpha=0.05)
         ax.plot(cases[variables[0]].values, color="k", marker="o")
         ax.set_xlabel("time")
         ax.set_ylabel(labels(variables[0]))
 
     elif len(variables) == 2:
-        ax = handle_axis(ax)
+        _, ax = handle_axis(ax)
 
     elif len(variables) == 3:
         ax = handle_axis(ax, dim=3)
@@ -133,7 +133,7 @@ def timeseries(data: pd.DataFrame, variable: str, ax=None, file_name: str = None
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax.plot(data.loc[:, variable])
     try:
         ax.set_ylabel(labels(variable))
@@ -246,7 +246,7 @@ def cadency(data, label="", ax=None, legend=False, fname=None):
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax.plot(
         data.index[1:], (data.index[1:] - data.index[:-1]).seconds / 3600, label=label
     )
@@ -332,7 +332,7 @@ def plot_cdf(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     if not isinstance(label, str):
         label = labels(var)
 
@@ -454,7 +454,7 @@ def nonstationary_percentiles(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     data["n"] = (
         (data.index.dayofyear + data.index.hour / 24.0 - 1)
         / pd.to_datetime(
@@ -581,7 +581,7 @@ def scatter_error_dependencies(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     if isinstance(variables, str):
         variables = [variables]
@@ -731,7 +731,7 @@ def corr(data: pd.DataFrame, lags: int = 24, ax=None, file_name: str = None):
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax.acorr(data, usevlines=False, maxlags=lags, normed=True, lw=2)
 
     ax.set_xlabel(r"Lags (hr)")
@@ -844,7 +844,7 @@ def bivariate_pdf(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    ax = handle_axis(ax, col_plots=2)
+    fig, ax = handle_axis(ax, col_plots=2)
 
     if bins is None:
         bins = [25, 25]
@@ -921,11 +921,13 @@ def nonstationary_cdf(
     log: bool = False,
     file_name: str = None,
     label: str = None,
+    lst="-", 
     legend: bool = True,
     legend_loc: str = "right",
     title: str = None,
     date_axis: bool = False,
     pemp: list = None,
+    emp: bool = True
 ):
     """Plots the time variation of given percentiles of data and theoretical function if provided
 
@@ -939,11 +941,13 @@ def nonstationary_cdf(
         * log: logarhitmic scale
         * file_name (string, optional): name of the file to save the plot or None to see plots on the screen. Defaults to None.
         * label: string with the label
+        * lst (string, optional): linestyle for theoretical distribution.
         * legend: plot the legend
         * legend_loc: locate the legend
         * title: draw the title
         * date_axis: create a secondary axis with time
         * pemp: list with percentiles to be plotted
+        * emp (bool, optional): if True plot the empirical nonst distribution 
 
     Returns:
         * ax (matplotlib.axis): axis for the plot or None
@@ -967,50 +971,52 @@ def nonstationary_cdf(
 
     dt = 366
     n = np.linspace(0, 1, dt)
-    xp, pemp = auxiliar.nonstationary_ecdf(
-        data,
-        variable,
-        wlen=daysWindowsLength / (365.25 * T),
-        equal_windows=equal_windows,
-        pemp=pemp,
-    )
+    if emp:
+        xp, pemp = auxiliar.nonstationary_ecdf(
+            data,
+            variable,
+            wlen=daysWindowsLength / (365.25 * T),
+            equal_windows=equal_windows,
+            pemp=pemp,
+        )
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     ax.set_prop_cycle("color", [plt.cm.winter(i) for i in np.linspace(0, 1, len(pemp))])
-    col_per = list()
+    if emp:
+        col_per = list()
 
-    if len(xp.index.unique()) > 60:
-        marker, ms, markeredgewidth = ".", 8, 1.5
-    else:
-        marker, ms, markeredgewidth = "+", 4, 1.5
-
-    for j, i in enumerate(pemp):
-        if isinstance(param, dict):
-            if param["transform"]["plot"]:
-                xp[i], _ = stf.transform(xp[[i]], param)
-                xp[i] -= param["transform"]["min"]
-                if "scale" in param:
-                    xp[i] = xp[i] / param["scale"]
-        if log:
-            p = ax.semilogy(
-                xp[i],
-                marker=marker,
-                ms=ms,
-                markeredgewidth=markeredgewidth,
-                lw=0,
-                label=str(i),
-            )
+        if len(xp.index.unique()) > 60:
+            marker, ms, markeredgewidth = ".", 8, 1.5
         else:
-            p = ax.plot(
-                xp[i],
-                marker=marker,
-                ms=ms,
-                markeredgewidth=markeredgewidth,
-                lw=0,
-                label=str(i),
-            )
-        col_per.append(p[0].get_color())
+            marker, ms, markeredgewidth = "+", 4, 1.5
+
+        for j, i in enumerate(pemp):
+            if isinstance(param, dict):
+                if param["transform"]["plot"]:
+                    xp[i], _ = stf.transform(xp[[i]], param)
+                    xp[i] -= param["transform"]["min"]
+                    if "scale" in param:
+                        xp[i] = xp[i] / param["scale"]
+            if log:
+                p = ax.semilogy(
+                    xp[i],
+                    marker=marker,
+                    ms=ms,
+                    markeredgewidth=markeredgewidth,
+                    lw=0,
+                    label=str(i),
+                )
+            else:
+                p = ax.plot(
+                    xp[i],
+                    marker=marker,
+                    ms=ms,
+                    markeredgewidth=markeredgewidth,
+                    lw=0,
+                    label=str(i),
+                )
+            col_per.append(p[0].get_color())
 
     if isinstance(param, dict):
         if param["status"] == "Distribution models fitted succesfully":
@@ -1041,19 +1047,12 @@ def nonstationary_cdf(
                     res[param["var"]] = res[param["var"]] * param["scale"]
 
                 if log:
-                    ax.semilogy(
-                        res[param["var"]].index,
-                        res[param["var"]].values,
-                        color=col_per[i],
-                        lw=2,
-                        label=str(j),
-                    )
-                else:
-                    if param["circular"]:
-                        ax.plot(
+                    if emp:
+                        ax.semilogy(
                             res[param["var"]].index,
-                            np.rad2deg(res[param["var"]].values),
+                            res[param["var"]].values,
                             color=col_per[i],
+                            ls=lst,
                             lw=2,
                             label=str(j),
                         )
@@ -1061,10 +1060,47 @@ def nonstationary_cdf(
                         ax.plot(
                             res[param["var"]].index.values,
                             res[param["var"]].values,
-                            color=col_per[i],
+                            ls=lst,
                             lw=2,
                             label=str(j),
                         )
+                else:
+                    if param["circular"]:
+                        if emp:
+                            ax.plot(
+                                res[param["var"]].index,
+                                np.rad2deg(res[param["var"]].values),
+                                color=col_per[i],
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
+                        else:
+                            ax.plot(
+                                res[param["var"]].index,
+                                np.rad2deg(res[param["var"]].values),
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
+                    else:
+                        if emp:
+                            ax.plot(
+                                res[param["var"]].index,
+                                res[param["var"]].values,
+                                color=col_per[i],
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
+                        else:
+                            ax.plot(
+                                res[param["var"]].index,
+                                res[param["var"]].values,
+                                ls=lst,
+                                lw=2,
+                                label=str(j),
+                            )
         else:
             raise ValueError(
                 "Model was not fit successfully. Look at the marginal fit."
@@ -1072,9 +1108,9 @@ def nonstationary_cdf(
 
     ax.grid()
 
+    box = ax.get_position()
     if legend:
         # Shrink current axis
-        box = ax.get_position()
         if param:
             if legend_loc == "bottom":
                 ax.set_position([box.x0, box.y0, box.width, box.height])
@@ -1193,6 +1229,11 @@ def nonstationary_cdf(
         ax.set_position(
             [box.x0, box.y0 + box.height * 0.1, box.width * 0.6, box.height * 0.9]
         )
+    for axis in ["top", "bottom", "left", "right"]:
+        ax.spines[axis].set_linewidth(2)
+    ax.xaxis.set_tick_params(width=2)
+    ax.yaxis.set_tick_params(width=2)
+
     show(file_name)
 
     return ax
@@ -1263,7 +1304,7 @@ def nonstat_cdf_ensemble(
         pemp=pemp,
     )
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     ax.set_prop_cycle("color", [plt.cm.winter(i) for i in np.linspace(0, 1, len(pemp))])
     col_per = list()
@@ -1529,7 +1570,7 @@ def soujourn(data_1, data_2, variable, threshold, ax=None, case="above", fname=N
     else:
         raise ValueError("Case options are above or below. {} given.".format(case))
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     ax = plot_cdf(
         info_1,
         var_,
@@ -1861,7 +1902,7 @@ def ensemble_acorr(
         ax.matplotlib: the figure
     """
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     color = ["royalblue", "lightsteelblue", "lightgrey", "darkgoldenrod", "forestgreen"]
 
@@ -1907,7 +1948,7 @@ def plot_copula(copula, labels=[], nbins=8, ax=None, fname=None):
         The plot
     """
     # _, ax = plt.subplots(figsize=(4, 4))
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
     # plt.subplots_adjust(left=0.2)
 
     data1, data2 = copula.X, copula.Y
@@ -1970,7 +2011,15 @@ def plot_copula(copula, labels=[], nbins=8, ax=None, fname=None):
     return ax
 
 
-def heatmap(data: np.ndarray, param: dict, type_: str, file_name: str = None):
+def heatmap(
+    data: np.ndarray,
+    param: dict,
+    cmap: str = "bwr_r",
+    type_: str = None,
+    file_name: str = None,
+    ax=None,
+    minmax=False,
+):
     """
     Create a heatmap from a numpy array and two lists of labels.
 
@@ -1981,10 +2030,15 @@ def heatmap(data: np.ndarray, param: dict, type_: str, file_name: str = None):
             matrix and Q for the covariance matrix
         * file_name: name of the oputput file
     """
-    fig, ax = plt.subplots()
+    fig, ax = handle_axis(ax)
 
     # Plot the heatmap
-    im = ax.imshow(data)
+    if minmax == "minimax":
+        im = ax.imshow(data, cmap=cmap, vmin=np.min(data), vmax=np.max(data))
+    elif isinstance(minmax, list):
+        im = ax.imshow(data, cmap=cmap, vmin=minmax[0], vmax=minmax[1])
+    elif minmax == "log":
+        im = ax.imshow(data, cmap=cmap, norm=LogNorm(vmin=0.001, vmax=10))
 
     # We want to show all ticks ...
     ax.set_xticks(np.arange(np.asarray(data).shape[1]))
@@ -1999,21 +2053,21 @@ def heatmap(data: np.ndarray, param: dict, type_: str, file_name: str = None):
             column_labels.append(
                 labels(param["vars"][i % len(data)]) + " (t-" + str(j) + ")"
             )
+        row_labels = []
+        for key_ in param["vars"]:
+            row_labels.append(labels(key_))
     else:
-        column_labels = labels(param["vars"])
-
-    row_labels = []
-    for key_ in param["vars"]:
-        row_labels.append(labels(key_))
+        column_labels = param["columns"]
+        row_labels = param["rows"]
 
     ax.set_xticklabels(column_labels)
     ax.set_yticklabels(row_labels)
 
     # Let the horizontal axes labeling appear on top.
-    ax.tick_params(top=True, bottom=False, labeltop=True, labelbottom=False)
+    ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
 
     # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=-30, ha="right", rotation_mode="anchor")
+    plt.setp(ax.get_xticklabels(), rotation=0, ha="right", rotation_mode="anchor")
 
     # Turn spines off and create white grid.
     for edge, spine in ax.spines.items():
@@ -2026,7 +2080,7 @@ def heatmap(data: np.ndarray, param: dict, type_: str, file_name: str = None):
 
     annotate_heatmap(im, valfmt="{x:.2f}")
 
-    fig.tight_layout()
+    # fig.tight_layout()
     show(file_name)
 
     return
@@ -2048,7 +2102,7 @@ def qqplot(
     cdf1 = auxiliar.ecdf(df1, variable, noperc)
     cdf2 = auxiliar.ecdf(df2, variable, noperc)
 
-    ax = handle_axis(ax)
+    _, ax = handle_axis(ax)
 
     if not isinstance(label, str):
         label = labels(variable)
@@ -2154,9 +2208,11 @@ def annotate_heatmap(
 
     # Normalize the threshold to the images color range.
     if threshold is not None:
-        threshold = im.norm(threshold)
+        threshold = threshold
     else:
-        threshold = im.norm(data.max()) / 2.0
+        threshold = np.max(
+            [abs(np.percentile(data.data, 10)), np.percentile(data.data, 90)]
+        )
 
     # Set default alignment to center, but allow it to be
     # overwritten by textkw.
@@ -2172,7 +2228,7 @@ def annotate_heatmap(
     texts = []
     for i in range(data.shape[0]):
         for j in range(data.shape[1]):
-            kw.update(color=textcolors[int(im.norm(data[i, j]) > threshold)])
+            kw.update(color=textcolors[abs(data.data[i, j]) > threshold])
             text = im.axes.text(j, i, valfmt(data[i, j], None), **kw)
             texts.append(text)
 
