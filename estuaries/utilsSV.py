@@ -45,13 +45,13 @@ def createConfigFile():
         "idfl": 0,  # Con esquema McCormack (sin limitador), 1: Con esquema TVD-McCormack (con limitador)
         "idbst": 1,  # Balance de terminos fuente'
         "iddy": 0,  # Algoritmo lecho seco
-        "idi2": 1,  #
-        "courant": 0.9,
+        "courant": 0.9,  # Número de Courant
         "dtst": 3600,  # Espaciamiento de los datos de salida, en segundos
-        "idmarea": 1,  # lee archivo: 1, no hay marea en aguas abajo: 0
-        "idfi": 4,  #  F�rmula de limitador de flujo fi 1 = minmod, 2 = Roe's Superbee, 3 = Van Leer, 4 = Van Albada
-        "idpsi": 1,  # �rmula para Psi: 1 = Garc�a-Navarro, 2 = Tseng
+        "idfi": 4,  # Fórmula de limitador de flujo fi 1 = minmod, 2 = Roe's Superbee, 3 = Van Leer, 4 = Van Albada
+        "idpsi": 1,  # Fórmula para Psi: 1 = García-Navarro, 2 = Tseng
     }
+    #     "geometryFilename"
+    #    "hydroFilename"
 
     if dConfig["idpsi"] == 1:
         dConfig["delta"] = 0.2
@@ -104,9 +104,9 @@ def read_oldfiles_v48(filename):
     dConfig["idbeta"] = float(
         re.split("\s+", data[26][:-1])[0]
     )  # uso de betas, 0=no, 1=s�
-    dConfig["idi2"] = float(
-        re.split("\s+", data[27][:-1])[0]
-    )  # Para usar I2 de archivo o calcularlo
+    # dConfig["idi2"] = float(
+    #     re.split("\s+", data[27][:-1])[0]
+    # )  # Para usar I2 de archivo o calcularlo
     dConfig["iddy"] = float(re.split("\s+", data[28][:-1])[0])  # Algoritmo lecho seco
     dConfig["idmr"] = float(
         re.split("\s+", data[29][:-1])[0]
@@ -119,15 +119,15 @@ def read_oldfiles_v48(filename):
     if dConfig["idqf"] == 2:
         dConfig["qfijo"] = float(re.split("\s+", data[32][:-1])[0])
 
-    dConfig["idmarea"] = float(
-        re.split("\s+", data[33][:-1])[0]
-    )  # orma de introducir la marea (idmarea): 1=senoide, 2=archivo
-    if dConfig["idmarea"] == 1:
-        dConfig["amplitud"] = float(re.split("\s+", data[34][:-1])[0])
-        dConfig["periodo"] = float(re.split("\s+", data[35][:-1])[0])
-        dConfig["nivelref"] = float(re.split("\s+", data[36][:-1])[0])
-    else:
-        dConfig["tideFilename"] = re.split("\s+", data[37][:-1])[0]
+    # dConfig["idmarea"] = float(
+    #     re.split("\s+", data[33][:-1])[0]
+    # )  # orma de introducir la marea (idmarea): 1=senoide, 2=archivo
+    # if dConfig["idmarea"] == 1:
+    #     dConfig["amplitud"] = float(re.split("\s+", data[34][:-1])[0])
+    #     dConfig["periodo"] = float(re.split("\s+", data[35][:-1])[0])
+    #     dConfig["nivelref"] = float(re.split("\s+", data[36][:-1])[0])
+    # else:
+    dConfig["tideFilename"] = re.split("\s+", data[37][:-1])[0]
 
     dConfig["idtfaa"] = float(
         re.split("\s+", data[44][:-1])[0]
@@ -145,21 +145,21 @@ def read_oldfiles_v48(filename):
 
 
 def seccionhid(db, dbt, config, telaps, pred=True):
-    # if not pred:
-    #     vars = ["Rhp", "I1p", "Bp", "etap", "betap"]
-    #     A = np.tile(dbt["Ap"][:, telaps].values, [db.sizes["z"], 1]).T
-    #     indexes_db = np.argmin(np.abs(A - db["A"].values), axis=1, keepdims=True)
-    #     facpr = (
-    #         dbt["Ap"][:, telaps]
-    #         - np.take_along_axis(db["A"][:].values, indexes_db, axis=1)[:, 0]
-    #     ) / (
-    #         np.take_along_axis(db["A"][:].values, indexes_db + 1, axis=1)[:, 0]
-    #         - np.take_along_axis(db["A"][:].values, indexes_db, axis=1)[:, 0]
-    #     )
-    # else:
-    vars = ["Rh", "I1", "B", "eta", "beta"]
+    """Compute the hydraulic sections as function of A
+
+    Args:
+        db (_type_): _description_
+        dbt (_type_): _description_
+        config (_type_): _description_
+        telaps (_type_): _description_
+        pred (bool, optional): for predictor (True) or corrector (False). Defaults to True.
+    """
+
+    vars = ["Rh", "B", "eta", "beta"]
     A = np.tile(dbt["A"][:, telaps].values, [db.sizes["z"], 1]).T
+    # Compute the index where the given area is found
     indexes_db = np.argmin(np.abs(A - db["A"].values), axis=1, keepdims=True)
+    # Obtain the proportional factor between areas
     facpr = (
         dbt["A"][:, telaps]
         - np.take_along_axis(db["A"][:].values, indexes_db, axis=1)[:, 0]
@@ -168,18 +168,7 @@ def seccionhid(db, dbt, config, telaps, pred=True):
         - np.take_along_axis(db["A"][:].values, indexes_db, axis=1)[:, 0]
     )
 
-    # np.take_along_axis(db["A"][:].values, mask, axis=1)
-    # dicc = {}
-    # dicc["x"] = np.arange(len(jj))
-    # dicc["z"] = jj
-    # np.stack([np.arange(len(jj)), jj])
-    # jj = np.reshape(jj, [1, len(jj)])
-
-    # for ii in range(config["nx"]):
-    #     print(ii)
-    #     jj = np.argmin(np.abs(dbt["A"][ii, telaps].values - db["A"][ii, :].values))
-    #     jj = kk[ii]
-
+    # Calculate the mean value of variables
     for var in vars:
         if not pred:
             varname = var + "p"
@@ -195,67 +184,23 @@ def seccionhid(db, dbt, config, telaps, pred=True):
             * facpr
         )
 
-    # dbt["I1"][:, telaps] = (
-    #     np.take_along_axis(db["I1"][:].values, indexes_db, axis=1)[:, 0]
-    #     + (
-    #         np.take_along_axis(db["I1"][:].values, indexes_db + 1, axis=1)[:, 0]
-    #         - np.take_along_axis(db["I1"][:].values, indexes_db, axis=1)[:, 0]
-    #     )
-    #     * facpr
-    # )
+    # TODO: Calculate I1
+    # dI1 = np.zeros(db.sizes["x"])
 
-    # dbt["B"][:, telaps] = (
-    #     np.take_along_axis(db["B"][:].values, indexes_db, axis=1)[:, 0]
-    #     + (
-    #         np.take_along_axis(db["B"][:].values, indexes_db + 1, axis=1)[:, 0]
-    #         - np.take_along_axis(db["B"][:].values, indexes_db, axis=1)[:, 0]
-    #     )
-    #     * facpr
-    # )
+    # Calculate I2
+    # Central finite-difference
+    dhdx, dI1dx = np.zeros(db.sizes["x"]), np.zeros(db.sizes["x"])
+    dhdx[1:-1] = (dbt["eta"][1:, telaps] - dbt["eta"][:-1, telaps]) / (2 * config["dx"])
+    dI1dx[1:-1] = (dbt["I1"][1:, telaps] - dbt["I1"][:-1, telaps]) / (2 * config["dx"])
+    # Upward finite-difference
+    dhdx[0] = (dbt["eta"][1, telaps] - dbt["eta"][0, telaps]) / config["dx"]
+    dI1dx[0] = (dbt["I1"][1, telaps] - dbt["I1"][0, telaps]) / config["dx"]
 
-    # dbt["eta"][:, telaps] = (
-    #     np.take_along_axis(db["eta"][:].values, indexes_db, axis=1)[:, 0]
-    #     + (
-    #         np.take_along_axis(db["eta"][:].values, indexes_db + 1, axis=1)[:, 0]
-    #         - np.take_along_axis(db["eta"][:].values, indexes_db, axis=1)[:, 0]
-    #     )
-    #     * facpr
-    # )
+    # Downward finite-difference
+    dhdx[-1] = (dbt["eta"][-1, telaps] - dbt["eta"][-2, telaps]) / config["dx"]
+    dI1dx[-1] = (dbt["I1"][-1, telaps] - dbt["I1"][-2, telaps]) / config["dx"]
 
-    # dbt["beta"][:, telaps] = (
-    #     np.take_along_axis(db["beta"][:].values, indexes_db, axis=1)[:, 0]
-    #     + (
-    #         np.take_along_axis(db["beta"][:].values, indexes_db + 1, axis=1)[:, 0]
-    #         - np.take_along_axis(db["beta"][:].values, indexes_db, axis=1)[:, 0]
-    #     )
-    #     * facpr
-    # )
-    if config["idi2"] == 1:
-        dbt["I2"][:, telaps] = (
-            np.take_along_axis(db["I2"][:].values, indexes_db, axis=1)[:, 0]
-            + (
-                np.take_along_axis(db["I2"][:].values, indexes_db + 1, axis=1)[:, 0]
-                - np.take_along_axis(db["I2"][:].values, indexes_db, axis=1)[:, 0]
-            )
-            * facpr
-        )
-
-    # if config["idi2"] == 2:
-    #     dhdx, dI1dx = np.zeros(db.sizes["x"]), np.zeros(db.sizes["x"])
-    #     dhdx = (dbt["eta"][1:, telaps] - dbt["eta"][:-1, telaps]) / (
-    #         2 * config["dx"]
-    #     )
-    #     dI1dx = (dbt["I1"][1:, telaps] - dbt["I1"][:-1, telaps]) / (
-    #         2 * config["dx"]
-    #     )
-
-    #     dhdx[0] = (dbt["eta"][1, telaps] - dbt["eta"][0, telaps]) / config["dx"]
-    #     dI1dx[0] = (dbt["I1"][1, telaps] - dbt["I1"][0, telaps]) / config["dx"]
-
-    #     dhdx[-1] = (dbt["eta"][-1, telaps] - dbt["eta"][-2, telaps]) / config["dx"]
-    #     dI1dx[-1] = (dbt["I1"][-1, telaps] - dbt["I1"][-2, telaps]) / config["dx"]
-
-    #     dbt["I2"][:, telaps] = dI1dx - db["A"][:, jj] * dhdx
+    dbt["I2"][:, telaps] = dI1dx - db["A"][:, telaps] * dhdx
 
     return
 
