@@ -242,7 +242,6 @@ def csv(
                     sep=sep,
                     parse_dates=[0],
                     index_col=[0],
-                    date_parser=date_parser,
                 )
     data = data[data != no_data_values]
     return data
