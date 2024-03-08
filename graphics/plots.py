@@ -845,7 +845,7 @@ def bivariate_pdf(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    fig, ax = handle_axis(ax, col_plots=2)
+    _, ax = handle_axis(ax, col_plots=2)
 
     if bins is None:
         bins = [25, 25]
