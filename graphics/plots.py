@@ -12,7 +12,6 @@ from marinetools.temporal.analysis import storm_properties
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.temporal.fdist.copula import Copula
 from marinetools.utils import auxiliar
-from matplotlib.colors import LogNorm
 from pandas.plotting import register_matplotlib_converters
 
 """This file is part of MarineTools.
@@ -1058,8 +1057,8 @@ def nonstationary_cdf(
                             label=str(j),
                         )
                     else:
-                        ax.semilogy(
-                            res[param["var"]].index,
+                        ax.plot(
+                            res[param["var"]].index.values,
                             res[param["var"]].values,
                             ls=lst,
                             lw=2,
