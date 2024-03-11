@@ -144,18 +144,59 @@ def read_oldfiles_v48(filename):
     return dConfig
 
 
-def seccionhid(db, dbt, config, telaps, pred=True):
+def calculate_Is(db, dConfig):
+    """Compute t
+    I1: permite calcular la diferencia entre los empujes de presión aplicados sobre las fronteras x1 y x2
+    I2: permite calcular la fuerza de presión debido a la variación del ancho del canal
+    TODO: En ambos se debe incluir la densidad rho(z)
+
+    Args:
+        db (_type_): _description_
+        dConfig (_type_): _description_
+    """
+    # -----------------------------------------------------------------------------------
+    # Calculate I1
+    # -----------------------------------------------------------------------------------
+    db["I1"][:, 1:] = np.cumsum(
+        (db["sigma"][:, 1:] + db["sigma"][:, :-1])
+        / 2
+        * db["eta"][:, 1:]
+        * (db["eta"][:, 1:] - db["eta"][:, :-1]),
+        axis=1,
+    )
+
+    # -----------------------------------------------------------------------------------
+    # Calculate I2
+    # -----------------------------------------------------------------------------------
+    # Central finite-difference
+    dhdx, dI1dx = np.zeros([db.sizes["x"], db.sizes["z"]]), np.zeros(
+        [db.sizes["x"], db.sizes["z"]]
+    )
+    dhdx[1:-1, :] = (db["eta"][2:, :] - db["eta"][:-2, :]) / (2 * dConfig["dx"])
+    dI1dx[1:-1, :] = (db["I1"][2:, :] - db["I1"][:-2, :]) / (2 * dConfig["dx"])
+    # Upward finite-difference
+    dhdx[0, :] = (db["eta"][1, :] - db["eta"][0, :]) / dConfig["dx"]
+    dI1dx[0, :] = (db["I1"][1, :] - db["I1"][0, :]) / dConfig["dx"]
+
+    # Downward finite-difference
+    dhdx[-1, :] = (db["eta"][-1, :] - db["eta"][-2, :]) / dConfig["dx"]
+    dI1dx[-1, :] = (db["I1"][-1, :] - db["I1"][-2, :]) / dConfig["dx"]
+
+    db["I2"][:] = dI1dx - db["A"][:].values * dhdx
+    return
+
+
+def seccionhid(db, dbt, telaps, pred=True):
     """Compute the hydraulic sections as function of A
 
     Args:
         db (_type_): _description_
         dbt (_type_): _description_
-        config (_type_): _description_
         telaps (_type_): _description_
         pred (bool, optional): for predictor (True) or corrector (False). Defaults to True.
     """
 
-    vars = ["Rh", "B", "eta", "beta"]
+    vars = ["Rh", "B", "eta", "beta", "I1", "I2"]
     A = np.tile(dbt["A"][:, telaps].values, [db.sizes["z"], 1]).T
     # Compute the index where the given area is found
     indexes_db = np.argmin(np.abs(A - db["A"].values), axis=1, keepdims=True)
@@ -183,24 +224,6 @@ def seccionhid(db, dbt, config, telaps, pred=True):
             )
             * facpr
         )
-
-    # TODO: Calculate I1
-    # dI1 = np.zeros(db.sizes["x"])
-
-    # Calculate I2
-    # Central finite-difference
-    dhdx, dI1dx = np.zeros(db.sizes["x"]), np.zeros(db.sizes["x"])
-    dhdx[1:-1] = (dbt["eta"][1:, telaps] - dbt["eta"][:-1, telaps]) / (2 * config["dx"])
-    dI1dx[1:-1] = (dbt["I1"][1:, telaps] - dbt["I1"][:-1, telaps]) / (2 * config["dx"])
-    # Upward finite-difference
-    dhdx[0] = (dbt["eta"][1, telaps] - dbt["eta"][0, telaps]) / config["dx"]
-    dI1dx[0] = (dbt["I1"][1, telaps] - dbt["I1"][0, telaps]) / config["dx"]
-
-    # Downward finite-difference
-    dhdx[-1] = (dbt["eta"][-1, telaps] - dbt["eta"][-2, telaps]) / config["dx"]
-    dI1dx[-1] = (dbt["I1"][-1, telaps] - dbt["I1"][-2, telaps]) / config["dx"]
-
-    dbt["I2"][:, telaps] = dI1dx - db["A"][:, telaps] * dhdx
 
     return
 
@@ -374,7 +397,7 @@ def read_hydro(config):
 
 def initialize(config, df):
     if config["idsgm"] == 0:
-        elev = np.zeros(config["nx"])
+        df["elev"] = np.zeros(config["nx"])
 
     if config["idbst"] == 1:
         df["zmedp"] = df["z"].diff(periods=-1)
@@ -383,7 +406,7 @@ def initialize(config, df):
         df["zmedc"] = df["z"].diff()
         df.loc[0, "zmedc"] = df.loc[1, "zmedc"]
 
-    return elev, df
+    return df
 
 
 def fdry(dbt, db, telaps, var_):
@@ -451,7 +474,7 @@ def limitador(dbt, dConfig, telaps, lambda_):
                     dbt["Q"][1:, telaps] / dbt["B"][1:, telaps]
                     - dbt["Q"][:-1, telaps] / dbt["B"][:-1, telaps]
                 )
-                + (-umed + cmed) * (elev[1:] - elev[:-1])
+                + (-umed + cmed) * (df["elev"][1:] - df["elev"][:-1])
             )
             / (2.0 * cmed)
         )
@@ -462,7 +485,7 @@ def limitador(dbt, dConfig, telaps, lambda_):
                     dbt["Q"][1:, telaps] / dbt["B"][1:, telaps]
                     - dbt["Q"][:-1, telaps] / dbt["B"][:-1, telaps]
                 )
-                + (-umed - cmed) * (elev[1:] - elev[:-1])
+                + (-umed - cmed) * (df["elev"][1:] - df["elev"][:-1])
             )
             / (2.0 * cmed)
         )
