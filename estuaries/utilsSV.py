@@ -7,6 +7,22 @@ import numpy as np
 from loguru import logger
 from marinetools.utils import read
 
+"""This file is part of MarineTools.
+
+MarineTools is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+MarineTools is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with MarineTools.  If not, see <https://www.gnu.org/licenses/>.
+"""
+
 
 def clock(initial, telap, dConfig):
     """_summary_
@@ -409,6 +425,19 @@ def initialize(config, df):
     return df
 
 
+# def read_sedimentos():
+#     # Archivo con las características de los sedimentos, unidades de longitud en metros
+#     # 0.00032799899		Diámetro medio, Dmed
+#     # 0.00043999989		D90
+#     # 0.0004059913		D84
+#     # 0.000319		D50
+#     # 0.00024899864		D16
+#     # 1.6305			Desviación estándar de lamuestra, sigmag
+#     # 2.65 			Peso específico relativo, Ss
+#     Diamx=D50*((denss-1.)*g/(1.e-6)**2.0)**(1./3.)
+# 	return
+
+
 def fdry(dbt, db, telaps, var_):
     # TODO: cambiar la rutina para que modifique los datos en la variable original
     Adry = 1e-8
@@ -557,7 +586,7 @@ def limitador(dbt, dConfig, telaps, lambda_):
         r2med[imask] = alfa2med[imask - 1] / alfa2med[imask]
     r2med[-1] = 1
 
-    # ! C�lculo de fi
+    # Cálculo de fi
     fi1med = np.max(
         [np.zeros(len(r1med)), np.min([np.ones(len(r1med)), r1med], axis=0)], axis=0
     )
@@ -565,7 +594,6 @@ def limitador(dbt, dConfig, telaps, lambda_):
         [np.zeros(len(r2med)), np.min([np.ones(len(r2med)), r2med], axis=0)], axis=0
     )
 
-    # for i in range(dConfig["nx"]-1):
     if dConfig["idfi"] == 1:  #               ! MinMod
         fi1med = np.max(0.0, np.min(1.0, r1med))
         fi2med = np.max(0.0, np.min(1.0, r2med))
@@ -587,8 +615,6 @@ def limitador(dbt, dConfig, telaps, lambda_):
     D[0, :-1] = 0.5 * (fac1pr[:-1] * e1med[0, :-1] + fac2pr[:-1] * e2med[0, :-1])
     D[1, :-1] = 0.5 * (fac1pr[:-1] * e1med[1, :-1] + fac2pr[:-1] * e2med[1, :-1])
 
-    # D[0, 0] = D[0, 1]
-    # D[1, 0] = D[1, 1]
     D[0, -1] = D[0, -2]
     D[1, -1] = D[1, -2]
 
