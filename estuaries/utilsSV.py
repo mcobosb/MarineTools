@@ -1,6 +1,7 @@
 import datetime
 import os
 import re
+import time
 from configparser import ConfigParser
 
 import numpy as np
@@ -75,6 +76,49 @@ def createConfigFile():
     with open("config.ini", "w") as configfile:
         dConfig.write(configfile)
     return
+
+
+def initial_condition(dbt, db, df, dConfig):
+    """_summary_
+
+    Args:
+        dbt (_type_): _description_
+        db (_type_): _description_
+        dConfig (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+
+    if dConfig["idci"] == 2:
+        logger.info(
+            "Computing initial condition for Q = " + str(dConfig["qci"]) + " m3/s"
+        )
+        dbt["Q"][:, 0] = dConfig["qci"]
+        for i in range(dConfig["nx"]):
+            facman = dbt["Q"][i, 0] * df["nmann"][i] / np.sqrt(df["S0"][i])
+            facsec = db["A"][i, :] * db["Rh"][i, :] ** (2.0 / 3.0)
+            araux = db["A"][i, :]
+
+            dbt["A"][i, 0] = np.interp(facman, facsec, araux)
+
+    elif dConfig["idci"] == 3:
+        logger.info(
+            "Computing initial condition for Q = 0 and eta = "
+            + str(dConfig["etaci"])
+            + " m"
+        )
+        dbt["Q"][:, 0] = 0.0
+        for i in range(dConfig["nx"]):
+            # areava = db["A"][i, :]
+            # etava = db["eta"][i, :]
+            # etavv = dConfig["etaci"] - df["z"][i]
+            dbt["A"][i, 0] = np.interp(
+                dConfig["etaci"] - df["z"][i], db["eta"][i, :], db["A"][i, :]
+            )
+    
+    time.sleep(1)
+    return dbt
 
 
 def read_oldfiles_v48(filename):
@@ -421,8 +465,30 @@ def initialize(config, df):
 
         df["zmedc"] = df["z"].diff()
         df.loc[0, "zmedc"] = df.loc[1, "zmedc"]
+    
+    aux = dict()
+    aux["Qmedp"], aux["Amedp"], aux["Rmedp"] = (
+        np.zeros(config["nx"]),
+        np.zeros(config["nx"]),
+        np.zeros(config["nx"]),
+    )
+    aux["Qmedc"], aux["Amedc"], aux["Rmedc"] = (
+        np.zeros(config["nx"]),
+        np.zeros(config["nx"]),
+        np.zeros(config["nx"]),
+    )
 
-    return df
+    aux["U"], aux["F"], aux["Gv"] = (
+        np.zeros([2, config["nx"]]),
+        np.zeros([2, config["nx"]]),
+        np.zeros([2, config["nx"]]),
+    )
+
+    aux["Up"], aux["Fp"] = np.zeros([2, config["nx"]]), np.zeros([2, config["nx"]])
+    aux["Uc"], aux["Gvp"] = np.zeros([2, config["nx"]]), np.zeros([2, config["nx"]])
+    aux["Unext"], aux["D"] = np.zeros([2, config["nx"]]), np.zeros([2, config["nx"]])
+
+    return df, aux
 
 
 # def read_sedimentos():
