@@ -148,6 +148,7 @@ def csv(
     date_format=None,
     sep: str = ",",
     encoding: str = "utf-8",
+    index_col: list = [0],
     non_natural_date: bool = False,
     no_data_values: int = -999,
 ):
@@ -168,34 +169,34 @@ def csv(
     """
     from loguru import logger
 
-    if not any(item in str(file_name) for item in ["dat", "txt", "csv", "zip"]):
-        filename = str(file_name) + ".csv"
-    else:
-        filename = str(file_name)
+    # if not any(item in str(file_name) for item in ["dat", "txt", "csv", "zip"]):
+    #     raise ValueError("Not extension filename = str(file_name) + ".csv"
+    # else:
+    #     filename = str(file_name)
 
     if non_natural_date:
         ts = False
 
     if not ts:
-        if "zip" in filename:
+        if "zip" in file_name:
             data = pd.read_csv(
-                filename,
+                file_name,
                 sep=sep,
-                index_col=[0],
+                index_col=index_col,
                 compression="zip",
                 engine="python",
             )
         else:
             try:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
-                    index_col=[0],
+                    index_col=index_col,
                     encoding=encoding,
                 )
             except:
                 data = pd.read_csv(
-                    filename, sep=sep, engine="python", encoding=encoding
+                    file_name, sep=sep, engine="python", encoding=encoding
                 )
 
         if non_natural_date:
@@ -207,29 +208,29 @@ def csv(
             ]
             data.index = index_
     else:
-        if "zip" in filename:
+        if "zip" in file_name:
             try:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
                     parse_dates=[0],
-                    index_col=[0],
+                    index_col=index_col,
                     compression="zip",
                     date_format=date_format,
                 )
             except:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
                     parse_dates=[0],
-                    index_col=[0],
+                    index_col=index_col,
                     date_format=date_format,
                 )
-                logger.info("{}, It is not a zip file.".format(str(filename) + ".csv"))
+                logger.info("{}, It is not a zip file.".format(str(file_name) + ".csv"))
         else:
             try:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
                     parse_dates=["date"],
                     index_col=["date"],
@@ -238,17 +239,17 @@ def csv(
             except:
                 if date_format == None:
                     data = pd.read_csv(
-                        filename,
+                        file_name,
                         sep=sep,
                         parse_dates=[0],
-                        index_col=[0],
+                        index_col=index_col,
                     )
                 else:
                     data = pd.read_csv(
-                        filename,
+                        file_name,
                         sep=sep,
                         parse_dates=[0],
-                        index_col=[0],
+                        index_col=index_col,
                         date_format=date_format,
                     )
     data = data[data != no_data_values]
@@ -275,7 +276,7 @@ def npy(file_name: str):
 
 
 def xlsx(file_name: str, sheet_name: str = 0, names: str = None):
-    """Reads xlsx files
+    """Reads xls or xlsx files
 
     Args:
         - file_name (string): filename of data
@@ -284,7 +285,7 @@ def xlsx(file_name: str, sheet_name: str = 0, names: str = None):
     Returns:
         - data (pd.DataFrame): the read data
     """
-    xlsx = pd.ExcelFile(file_name + ".xlsx")
+    xlsx = pd.ExcelFile(file_name)
     data = pd.read_excel(xlsx, sheet_name=sheet_name, index_col=0, names=names)
     return data
 
