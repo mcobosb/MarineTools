@@ -274,7 +274,7 @@ def npy(file_name: str):
     return data
 
 
-def xlsx(file_name: str, sheet_name: str = 0):
+def xlsx(file_name: str, sheet_name: str = 0, names: str = None):
     """Reads xlsx files
 
     Args:
@@ -285,7 +285,7 @@ def xlsx(file_name: str, sheet_name: str = 0):
         - data (pd.DataFrame): the read data
     """
     xlsx = pd.ExcelFile(file_name + ".xlsx")
-    data = pd.read_excel(xlsx, sheet_name=sheet_name, index_col=0)
+    data = pd.read_excel(xlsx, sheet_name=sheet_name, index_col=0, names=names)
     return data
 
 
