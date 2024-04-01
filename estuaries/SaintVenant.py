@@ -1,454 +1,363 @@
 import datetime
-import os
-import re
-import sys
-from configparser import ConfigParser
 
 import numpy as np
-import xarray as xr
-from loguru import logger
-from marinetools.processes import compute
+import pandas as pd
+from marinetools.estuaries import utils
+from marinetools.utils import read
 
-import utilsSV
+"""This file is part of MarineTools.
 
-# config = ConfigParser()
-# dConfig = config.read("config.ini")
+MarineTools is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 
-initial = datetime.datetime.now()
+MarineTools is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
 
-dConfig = utilsSV.read_oldfiles_v48("datosguadv48.txt")
-
-
-dConfig["tfin"] = 3600 * 24 * 31
-g = 9.81
-
-df, db, dbt = utilsSV.read_geometry(dConfig)
-
-
-dx = (df.x.values[-1] - df.x.values[0]) / (
-    dConfig["nx"] - 1
-)  # a partir dle número total de perfiles
-# Pendientes
-df["S0"] = df["z"].diff(periods=-1) / dx
-df.loc[dConfig["nx"] - 1, "S0"] = (
-    -(df.loc[dConfig["nx"] - 1, "z"] - df.loc[dConfig["nx"] - 2, "z"]) / dx
-)
-# S0[0] = -(z[1]-z[0])/dx
-# df.loc["S0", 1:-1] = (df["z"][:-2] - z[2:])/(2*dx)
-# S0[-1] =-(z[-1]-z[-2])/dx
-
-hidroaportes = utilsSV.read_hydro(dConfig)
-
-# def read_sedimentos():
-#     # Archivo con las características de los sedimentos, unidades de longitud en metros
-#     # 0.00032799899		Diámetro medio, Dmed
-#     # 0.00043999989		D90
-#     # 0.0004059913		D84
-#     # 0.000319		D50
-#     # 0.00024899864		D16
-#     # 1.6305			Desviación estándar de lamuestra, sigmag
-#     # 2.65 			Peso específico relativo, Ss
-#     Diamx=D50*((denss-1.)*g/(1.e-6)**2.0)**(1./3.)
-# 	return
+You should have received a copy of the GNU General Public License
+along with MarineTools.  If not, see <https://www.gnu.org/licenses/>.
+"""
 
 
-# armarul = db["A"][-1, :] # área última
-# etmarul = db["eta"][-1, :] # eta última
-# armarpu = db["A"][-2, :] # área penúltima
-# etmarpu = db["eta"][-2, :] # eta penúltima
-zmedp = np.zeros(dConfig["nx"])
-zmedc = np.zeros(dConfig["nx"])
+def main(sConfigFilename, iVersion=1):
+    """Calculate water flux and flooding area (Q, A) using the Saint-Venant equations
+    for 1D channels.
+    Args:
+        sConfigFilename (str): filename of the configuration file
+        iVersion (int): 1 or for reading the output from BathymetryGenerator.py or
+            reading original Guadalfortran geometry files, respectively.
+
+    The configuration file (sConfigFilename) includes:
+        bLog (int): 1 or 0 for run the model writing the log and auxiliary files or not,
+            respectively.
+        sGeometryFilename (str): name of the estuary geometry file
+        sHydroFilename (str):	constant_hydro.csv
+        iInitialEstuaryCondition (int): 0 or 1 for fixing Q or eta for the entire
+            estuary, respectively.
+        sInitialQFilename	-
+        fQci	10
+        fEtaci	0.02
+        fCourantNo	0.80
+        sOutputFilename	test_001.nc
+        fTimeStep	1 hour
+        fFinalTime	250
+        bDensity	1
+        sSedimentFilename	-
+        bMcComarckLimiterFlux	1
+        bSurfaceGradientMethod	1
+        bSourceTermBalance	1
+        bBeta	0
+        bDryBed	1
+        bMurilloCondition	0
+        iInitialBoundaryCondition	1
+        iFinalBoundaryCondition	1
+        fFixQ	0
+        sTideFilename	tides.txt
+        fDtMin	10,000,000,000.000000
+        iFormulaLimiterFlux	4
+        iPsiFormula	2
+        fDeltaValue	0.20
 
 
-# Condition inicial calculada
-# ------------------------------------
-# facsec = np.zeros(dConfig["nsx"])
-# araux = np.zeros(dConfig["nsx"])
 
+    Required functions:
+        -
 
-if dConfig["idci"] == 2:
-    logger.info("Computing initial condition for Q = " + str(dConfig["qci"]) + " m3/s")
-    dbt["Q"][:, 0] = dConfig["qci"]
-    for i in range(dConfig["nx"]):
-        facman = dbt["Q"][i, 0] * df["nmann"][i] / np.sqrt(df["S0"][i])
-        facsec = db["A"][i, :] * db["Rh"][i, :] ** (2.0 / 3.0)
-        araux = db["A"][i, :]
+    Improvements:
+        - This verions allow the computation of the sediment density (bedload, suspended
+        sediment concentration and salinity) coupling the density to the TVD MacCormack
+        scheme and updating the salinity with Diez-Minguito et al. (2013).
+        - The time step is computed according to fast progation velocity of fluid,
+        perturbations, dispersion (and tides)
+        - It will include the tidal currents (v 2.0.0)
 
-        dbt["A"][i, 0] = np.interp(facman, facsec, araux)
+    Limitations:
+        - This version still requires a constant spatial discretization
+        - This version does not include yet the water discharge at the seaward side
+    """
+    initial = datetime.datetime.now()
 
-elif dConfig["idci"] == 3:
-    logger.info(
-        "Computing initial condition for Q = 0 and eta = "
-        + str(dConfig["etaci"])
-        + " m"
-    )
-    dbt["Q"][:, 0] = 0.0
-    for i in range(dConfig["nx"]):
-        # areava = db["A"][i, :]
-        # etava = db["eta"][i, :]
-        # etavv = dConfig["etaci"] - df["z"][i]
-        dbt["A"][i, 0] = np.interp(
-            dConfig["etaci"] - df["z"][i], db["eta"][i, :], db["A"][i, :]
-        )
-
-
-telaps = 0  # no tiene por que ser del hidrograma, ya que puede haber caudal exterior#tprhid[0] # tiempo inicial de c�lculo = tiempo inicial de hidrograma de entrada
-it = 0
-
-# Calculo
-# ! Interpola los caudales de entrada al tiempo de c�lculo
-hidronodos = np.zeros(dConfig["nsx"])
-dConfig["nxhidros"] = 1
-# dConfig["tfinal"] = 1000
-tprhid = 0
-qhidpr = np.zeros(dConfig["nx"])
-Qaport = np.zeros(dConfig["nx"])
-qpuntual = np.zeros(dConfig["nx"])
-
-# Qprueba = np.linspace(0, 200, 25)
-
-
-U, F, Gv = (
-    np.zeros([2, dConfig["nx"]]),
-    np.zeros([2, dConfig["nx"]]),
-    np.zeros([2, dConfig["nx"]]),
-)
-
-Up, Fp = np.zeros([2, dConfig["nx"]]), np.zeros([2, dConfig["nx"]])
-Uc, Gvp = np.zeros([2, dConfig["nx"]]), np.zeros([2, dConfig["nx"]])
-Unext, D = np.zeros([2, dConfig["nx"]]), np.zeros([2, dConfig["nx"]])
-
-
-U[0, :] = dbt["A"][:, 0]
-U[1, :] = dbt["Q"][:, 0]
-F[0, :] = dbt["Q"][:, 0]
-# ---------------------------------------------------------------------------------------
-# Initialize the loop in time
-# ---------------------------------------------------------------------------------------
-while telaps < dConfig["tfin"] / 3600 + 1:  # 500:
-    utilsSV.clock(initial, telaps, dConfig)
-    for ii in range(dConfig["nxhidros"]):
-        qhidpr = hidroaportes.values[:, 0]
-        # Caudales por aportes de afluentes (x)
-        Qaport[ii] = np.interp(telaps * 3600, hidroaportes.index.values, qhidpr)
-
-        # Qhidit = Qaport[0]
-        if dConfig["nxhidros"] >= 2:
-            for ii in range(2, dConfig["nxhidros"]):
-                qpuntual[hidronodos[ii]] = Qaport[ii] / dx
-    #
-    # ! para contorno aguas arriba abierto:
-    if dConfig["idtfaa"] == 2:
-        qpuntual[0] = Qaport[0] / dx
-
-    # Pasa  de elevación de marea a area
-    # Solo voy a dar la opción de que insertes la marea o sea cero
-    if dConfig["idmarea"] == 0:
-        mareateln, mareatelnm = (
-            -df.loc[dConfig["nx"] - 1, "z"],
-            -df.loc[dConfig["nx"] - 2, "z"],
-        )
-    else:
-        # TODO: crear archivo con la marea
-        data = np.loadtxt(dConfig["tideFilename"])  # tiempo y nivel
-        tmarfile, emarfile = data[:, 0], data[:, 1]
-        mareaelu = np.interp(telaps, tmarfile, emarfile)
-        # le sumamos al nivel de marea el valor de la profundidad
-        mareateln = np.interp(
-            -df.loc[dConfig["nx"] - 1, "z"] + mareaelu, db["eta"][-1, :], db["A"][-1, :]
-        )
-        mareatelnm = np.interp(
-            -df.loc[dConfig["nx"] - 2, "z"] + mareaelu, db["eta"][-2, :], db["A"][-2, :]
-        )
-
-    # Para opci�n de revisar lecho seco
-    if dConfig["iddy"]:
-        dbt = utilsSV.fdry(dbt, db, telaps, "A")
-        # dbt = utilsSV.fdry(dbt, db, telaps, "Q")
-        # A[:] = A2[iy]
-        # Q[:] = Q2[iy]
-
-    #  C�culo de secciones hidr�licas (variables hidr�ulicas de la secci�n en funci�n de A)
-    # logger.info(
-    #     "Cálculo de secciones hidrálicas (variables hidráulicas de la sección en función de A)"
-    # )
-    utilsSV.seccionhid(db, dbt, dConfig, telaps)
-
-    # Opci�n dx-n, verifica n de Manning para cumplir condici�n de Murillo para dx
-    facmr, ymr, vmr = (
-        np.zeros(dConfig["nx"]),
-        np.zeros(dConfig["nx"]),
-        np.zeros(dConfig["nx"]),
-    )
-    df["nmann1"] = df["nmann"]
-    if dConfig["idmr"]:
-        cdx = 0.6
-        nmr = 0
-        nmur = cdx * np.sqrt(2 * dbt["Rh"][:, telaps].values ** (2.0 / 3.0) / (g * dx))
-        mask = nmur < df["nmann"]
-        df.loc[mask, "nmann1"] = nmur[mask]
-        facmr[mask] = nmur[mask] / df.loc[mask, "nmann"]
-        dbt["I1"][mask, telaps] = dbt["I1"][mask, telaps] * facmr[mask]
-        # vmr[mask] = mask[mask].index
-        vmr = mask
-    #     for iy in range(dConfig["nx"]):
-    #         nmur = cdx * np.sqrt(2 * dbt["Rh"][:, telaps] ** (2.0 / 3.0) / (g * dx))
-    #         if nmur < dbt["nmann"][iy, telaps]:
-    #             nmr = nmr + 1
-    #             dbt["nmann1"][iy, telaps] = nmur
-    #             facmr[iy] = nmur / dbt["nmann"][iy, telaps]
-    #             dbt["I1"][iy, telaps] = dbt["I1"][iy, telaps] * facmr[iy]
-    #             vmr[nmr] = iy
-    #         else:
-    #             dbt["nmann1"][iy, telaps] = dbt["nmann"][iy, telaps]
-
-    # else:
-    #     dbt["nmann1"][:, telaps] = dbt["nmann"][:, telaps]
-
-    # Variables de ecuaciones (vectores U, F y G) y c�lculo del paso de tiempo (dt)
-    # for ii in range(dConfig["nx"]):
-    if not dConfig["idbst"]:  #      ! Sin balance de t�rminos fuente
-        df["Sf"] = (
-            dbt["Q"][:, telaps]
-            * abs(dbt["Q"][:, telaps])
-            * df["nmann1"] ** 2.0
-            / (dbt["A"][:, telaps] ** 2.0 * dbt["Rh"][:, telaps] ** (4.0 / 3.0))
-        )
-        gAS0 = g * dbt["A"][:, telaps] * df["S0"][:]
-        gASf = g * dbt["A"][:, telaps] * df["Sf"][:]
-    else:  #   ! Con balance de t�rminos fuente
-        # TODO: por verificar
-        Qmedp, Amedp, Rmedp = (
-            np.zeros(dConfig["nx"]),
-            np.zeros(dConfig["nx"]),
-            np.zeros(dConfig["nx"]),
-        )
-
-        Qmedp[:-1] = (dbt["Q"][1:, telaps] + dbt["Q"][:-1, telaps]) / 2
-        Amedp[:-1] = (dbt["A"][1:, telaps] + dbt["A"][:-1, telaps]) / 2
-        Rmedp[:-1] = (dbt["Rh"][1:, telaps] + dbt["Rh"][:-1, telaps]) / 2
-
-        Qmedp[-1] = dbt["Q"][-1, telaps]
-        Amedp[-1] = dbt["A"][-1, telaps]
-        Rmedp[-1] = dbt["Rh"][-1, telaps]
-
-        gAS0 = g * Amedp * df["zmedp"]
-        gASf = (
-            g
-            * dbt["nmann1"][:, telaps] ** 2.0
-            * Qmedp
-            * np.abs(Qmedp)
-            / (Amedp * Rmedp ** (4.0 / 3.0))
-        )
-
-    if dConfig["idbeta"]:
-        F[1, :] = dbt["beta"][:, telaps] * (
-            dbt["Q"][:, telaps] ** 2.0 / dbt["A"][:, telaps] + g * dbt["I1"][:, telaps]
-        )  # ! s� se usa el coeficiente beta
-    else:
-        F[1, :] = dbt["Q"][:, telaps] ** 2.0 / (
-            dbt["A"][:, telaps] + g * dbt["I1"][:, telaps]
-        )  # ! no se usa el coeficiente beta
-
-    Gv[0, :] = qpuntual[:]
-    Gv[1, :] = g * dbt["I2"][:, telaps] + gAS0 - gASf
-    dbt["vel"][:, telaps] = (
-        dbt["Q"][:, telaps] / dbt["A"][:, telaps]
-    )  #    ! velocidad media
-    dbt["c"][:, telaps] = np.sqrt(
-        g * dbt["A"][:, telaps] / dbt["B"][:, telaps]
-    )  #  ! celeridad de las perturbaciones
-    dtpr = dConfig["courant"] * dx / (abs(dbt["vel"][:, telaps]) + dbt["c"][:, telaps])
-
-    vdy, ndy = np.zeros(dConfig["nx"], dtype=bool), np.zeros(dConfig["nx"], dtype=bool)
-
-    dConfig["dtmin"] = np.min(dtpr).values
-
-    if dConfig["iddy"]:  #   ! Para revisar lecho secho
-        # for iy in range(ndy):
-        F[0, vdy] = 0
-        F[1, vdy] = 0
-        Gv[1, vdy] = 0
-
-    dt = dConfig["dtmin"]
-    lambda_ = dt / dx
-    # telaps = telaps + dt
-
-    # !!!!!!!!!!!!!!!!!!!! Predictor
     # -----------------------------------------------------------------------------------
-    Up[0, :-1] = U[0, :-1] - lambda_ * (F[0, 1:] - F[0, :-1]) + dt * Gv[0, :-1]
-    Up[1, :-1] = U[1, :-1] - lambda_ * (F[1, 1:] - F[1, :-1]) + dt * Gv[1, :-1]
-    if dConfig["idtfaa"] == 1:  #      ! Frontera inicial reflejante
-        Up[1, 0] = Qaport[0]
-    elif dConfig["idtfaa"] == 2:  #  ! Frontera inicial abierta
-        Up[1, 0] = Up[1, 1]
+    # READING INPUTS AND INITIALIZING VARIABLES
+    # -----------------------------------------------------------------------------------
+    # Read the configuration file
+    if iVersion:
+        dConfig = read.xlsx(sConfigFilename, names=["options"])["options"].to_dict()
+    else:
+        dConfig = utils.read_oldfiles(sConfigFilename)
 
-    Up[0, -1] = Up[0, -2]  #  	! Cond. de front. A final
-    if dConfig["idqf"] == 1:  # then   	    ! Cond. de front. Q final
-        Up[1, -1] = Up[1, -2]  # 	    	    ! Q abierto
-    elif dConfig["idqf"] == 2:  # then
-        qff, qver = 0, 0  # Condición de caudal de fijo aguas arriba
-        Up[1, -1] = qff + qver  #          	! Q fijo
-        Up[1, -2] = qff + qver  # 			! para que funcione mejor el esquema
-    elif dConfig["idqf"] == 3:
-        Up[1, -1] = Up[1, -2]
-        Up[0, -1] = mareateln  #           ! Marea
-        Up[0, -2] = mareatelnm
+    utils._configure_time(dConfig)
 
-    # Recorro en x el rio
-    # -------------------------------------------------------------
-    dbt["Ap"][:, telaps] = Up[0, :]
-    dbt["Qp"][:, telaps] = Up[1, :]
+    # Read the geometrical properties of the estuary
+    if iVersion:
+        # 1. Sections along the main channel
+        df = read.csv(dConfig["sGeometryFilename"], index_col=None)
+        # 2. Features in terms of the water level
+        db = utils._read_cross_sectional_geometry(dConfig)
+    else:
+        df, db = utils._read_geometry_oldfiles(dConfig)
 
-    # ! Si lecho seco
-    if dConfig["iddy"] == 1:
-        # Por el momento no entro
-        # utilsSV.fdry(np, Ap, Qp, A2, Q2, ndy, vdy)
-        dbt = utilsSV.fdry(dbt, db, telaps, "Ap")
-        # for iy in range(np):
-        #     dbt["Ap"][iy, telaps] = A2(iy)
-        #     dbt["Qp"][iy, telaps] = Q2(iy)
+    # Initialize vectors and matrix
+    dbt = utils._initialize_netcdf(df, dConfig)
+    db, df, aux = utils._initialize_auxiliary(db, df, dConfig)
 
-    #   ! Par�metros hidr�ulicos en secciones transversales para el Predictor
-    utilsSV.seccionhid(db, dbt, dConfig, telaps, False)  # aquí debería usar las pes
+    # Reading hydro files
+    hydro = utils._read_hydro(dConfig)
 
-    # ! Opci�n dx-n Murillo
-    if dConfig["idmr"]:
-        # for iy in range(nmr):
-        dbt["I1p"][vmr, telaps] = dbt["I1p"][vmr, telaps] * facmr[vmr]
+    # Reading tide files
+    aux["tidal_level"] = pd.read_csv(
+        dConfig["sTideFilename"], sep=" ", index_col=[0], header=0
+    )
 
-    # for ii in range(dConfig["nx"]):
-    if not dConfig["idbst"]:  #      ! Sin balance de t�rminos fuente
-        df["Sfp"] = (
+    if dConfig["bDensity"]:
+        # Reading sediment properties
+        sedProp = utils._read_sediments(dConfig)
+
+        # Reading initial along-estuary salinity
+        dbt["S"][:, 0] = read.csv(dConfig["sSalinityFilename"]).values[:, 0]
+
+    # Fix the initial condition of the estuary
+    aux = utils._initial_condition(dbt, db, df, aux, dConfig)
+
+    # Compute the fluvial contribution at every node at the given time steps
+    utils._fluvial_contribution(dbt, hydro, dConfig)
+
+    # ----------------------------------------------------------------------------------
+    # INITIALIZE THE SCRIPT
+    # ----------------------------------------------------------------------------------
+    for telaps in dConfig["iTime"]:
+
+        # Elapsed time - clock
+        utils.clock(initial, telaps, dConfig)
+
+        # Computing the water level due to tides at the seaward boundary
+        aux = utils._tidal_level(db, aux, df, dConfig, telaps)
+
+        # Dry bed algorithm
+        if dConfig["bDryBed"]:
+            mask_dry = utils._dry_soil(dbt, telaps)
+
+        # Murillo condition for dx (verify Manning number)
+        if dConfig["bMurilloCondition"]:
+            vmr, nmur = utils._conditionMurillo(dbt, df, dConfig, telaps)
+
+        # Compute the hydraulic parameters as function of A
+        utils._hydraulic_parameters(dbt, db, telaps)
+
+        # Compute the time step given the Courant number and velocity of information
+        # transference
+        dConfig = utils._courant_number(dbt, df, dConfig, telaps)
+        dConfig["lambda"] = dConfig["dtmin"] / dConfig["dx"]
+
+        df["Sf"] = (
+            dbt["Q"][:, telaps].values
+            * np.abs(dbt["Q"][:, telaps].values)
+            * df["nmann1"].values ** 2.0
+            / (
+                dbt["A"][:, telaps].values ** 2.0
+                * dbt["Rh"][:, telaps].values ** (4.0 / 3.0)
+            )
+        )
+
+        df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
+        df["Sf"] = np.abs(df["Sf"])
+
+        # ----------------------------------------------------------------------------------
+        # Sediment transport
+        # ----------------------------------------------------------------------------------
+        if dConfig["bDensity"]:
+            utils._vanRijn(sedProp, dbt, df, telaps)
+            utils._density(dbt, dConfig, sedProp, telaps)
+        else:
+            dbt["rho"][:, telaps] = np.ones(len(dbt["A"][:, telaps])) * 1000
+
+        # ----------------------------------------------------------------------------------
+        # Compute gAS, F and Gv terms
+        # ----------------------------------------------------------------------------------
+        aux = utils._gAS_terms(dbt, df, aux, dConfig, telaps)
+        aux = utils._F_terms(dbt, aux, dConfig, telaps)
+        aux = utils._Gv_terms(dbt, aux, telaps)
+
+        # Dry bed algorithm
+        if dConfig["bDryBed"]:
+            aux["F"][0, mask_dry] = 0
+            aux["F"][1, mask_dry] = 0
+            aux["Gv"][1, mask_dry] = 0
+
+        # ----------------------------------------------------------------------------------
+        # STEP 1. Predictor
+        # ----------------------------------------------------------------------------------
+        aux["Up"][0, :-1] = (
+            aux["U"][0, :-1] * dbt["rho"][:-1, telaps]
+            - dConfig["lambda"]
+            * (
+                aux["F"][0, 1:] * dbt["rho"][1:, telaps]
+                - aux["F"][0, :-1] * dbt["rho"][:-1, telaps]
+            )
+            + dConfig["dtmin"] * aux["Gv"][0, :-1] * dbt["rho"][:-1, telaps]
+        ) / dbt["rho"][:-1, telaps]
+        aux["Up"][0, -1] = aux["Up"][0, -2]
+
+        aux["Up"][1, :-1] = (
+            aux["U"][1, :-1] * dbt["rho"][:-1, telaps]
+            - dConfig["lambda"]
+            * (
+                aux["F"][1, 1:] * dbt["rho"][1:, telaps]
+                - aux["F"][1, :-1] * dbt["rho"][:-1, telaps]
+            )
+            + dConfig["dtmin"] * aux["Gv"][1, :-1] * dbt["rho"][:-1, telaps]
+        ) / dbt["rho"][:-1, telaps]
+
+        aux = utils._boundary_conditions(dbt, aux, dConfig, telaps, "p")
+
+        # Update Ap and Qp
+        dbt["Ap"][:, telaps] = aux["Up"][0, :]
+        dbt["Qp"][:, telaps] = aux["Up"][1, :]
+
+        # Dry bed algorithm
+        if dConfig["bDryBed"] == 1:
+            mask_dry = utils._dry_soil(dbt, telaps, "p")
+
+        # Compute the hydraulic parameters as function of A
+        utils._hydraulic_parameters(dbt, db, telaps, False)
+
+        # Check the Murillo condition for dx
+        if dConfig["bMurilloCondition"]:
+            dbt["I1p"][vmr, telaps] = (
+                dbt["I1p"][vmr, telaps] * nmur[vmr] / df.loc[vmr, "nmann"]
+            )
+
+        df["Sf"] = (
             dbt["Qp"][:, telaps]
-            * abs(dbt["Qp"][:, telaps])
+            * np.abs(dbt["Qp"][:, telaps])
             * df["nmann1"] ** 2.0
             / (dbt["Ap"][:, telaps] ** 2.0 * dbt["Rhp"][:, telaps] ** (4.0 / 3.0))
         )
-        gAS0p = g * dbt["Ap"][:, telaps] * df["S0"]
-        gASfp = g * dbt["Ap"][:, telaps] * df["Sfp"]
-    else:  #   ! Con balance de t�rminos fuente
-        Qmedc, Amedc, Rmedc = (
-            np.zeros(dConfig["nx"]),
-            np.zeros(dConfig["nx"]),
-            np.zeros(dConfig["nx"]),
-        )
+        df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
+        df["Sf"] = np.abs(df["Sf"])
 
-        Qmedc[:-1] = (dbt["Qp"][1:, telaps] + dbt["Qp"][:-1, telaps]) / 2
-        Amedc[:-1] = (dbt["Ap"][1:, telaps] + dbt["Ap"][:-1, telaps]) / 2
-        Rmedc[:-1] = (dbt["Rhp"][1:, telaps] + dbt["Rhp"][:-1, telaps]) / 2
+        # -----------------------------------------------------------------------------------
+        # STEP 1.1: Compute gAS terms
+        # -----------------------------------------------------------------------------------
+        aux = utils._gAS_terms(dbt, df, aux, dConfig, telaps, False)
+        aux = utils._F_terms(dbt, aux, dConfig, telaps, False)
+        aux = utils._Gv_terms(dbt, aux, telaps, False)
 
-        Qmedc[-1] = dbt["Qp"][-1, telaps]
-        Amedc[-1] = dbt["Ap"][-1, telaps]
-        Rmedc[-1] = dbt["Rhp"][-1, telaps]
+        # Dry bed algorithm
+        if dConfig["bDryBed"]:
+            aux["Fp"][0, mask_dry] = 0.0
+            aux["Fp"][1, mask_dry] = 0.0
+            aux["Gvp"][1, mask_dry] = 0.0
 
-        gAS0p = g * Amedc * df["zmedc"]
-        gASfp = (
-            g
-            * dbt["nmann1"][:, telaps] ** 2.0
-            * Qmedc
-            * np.abs(Qmedc)
-            / (Amedc * Rmedc ** (4.0 / 3.0))
-        )
-    Fp[0, :] = dbt["Qp"][:, telaps]
-    if dConfig["idbeta"]:  #   ! Coeficiente beta
-        Fp[1, :] = dbt["betap"][:, telaps] * (
-            dbt["Qp"][:, telaps] ** 2.0 / dbt["Ap"][:, telaps]
-            + g * dbt["I1p"][:, telaps]
-        )  # ! si usar beta
-    else:
-        Fp[1, :] = (
-            dbt["Qp"][:, telaps] ** 2.0 / dbt["Ap"][:, telaps]
-            + g * dbt["I1p"][:, telaps]
-        )  # ! no usar beta
-    Gvp[0, :] = qpuntual[:]
-    Gvp[1, :] = g * dbt["I2p"][:, telaps] + gAS0p - gASfp
+        # ----------------------------------------------------------------------------------
+        # STEP 1.2: Sediment transport
+        # ----------------------------------------------------------------------------------
+        if dConfig["bDensity"]:
+            utils._vanRijn(sedProp, dbt, df, telaps)
+            utils._density(dbt, dConfig, sedProp, telaps, False)
+        else:
+            dbt["rhop"][:, telaps] = np.ones(len(dbt["A"][:, telaps])) * 1000
 
-    # ! Opci�n seco
-    if dConfig["iddy"]:
-        Fp[0, vdy] = 0.0
-        Fp[1, vdy] = 0.0
-        Gvp[1, vdy] = 0.0
+        # -----------------------------------------------------------------
+        # STEP 2: Corrector
+        # -----------------------------------------------------------------
+        aux["Uc"][0, 1:] = (
+            aux["U"][0, 1:] * dbt["rhop"][1:, telaps]
+            - dConfig["lambda"]
+            * (
+                aux["Fp"][0, 1:] * dbt["rhop"][1:, telaps]
+                - aux["Fp"][0, :-1] * dbt["rhop"][:-1, telaps]
+            )
+            + dConfig["dtmin"] * aux["Gvp"][0, 1:] * dbt["rhop"][1:, telaps]
+        ) / dbt["rhop"][1:, telaps]
+        aux["Uc"][0, 0] = aux["Uc"][0, 1]
 
-    # -----------------------------------------------------------------
-    # !!!!!!!!!!!!!!!!!!!! Corrector
-    # -----------------------------------------------------------------
-    Uc[0, 1:] = U[0, 1:] - lambda_ * (Fp[0, 1:] - Fp[0, :-1]) + dt * Gvp[0, 1:]
-    Uc[1, 1:] = U[1, 1:] - lambda_ * (Fp[1, 1:] - Fp[1, :-1]) + dt * Gvp[1, 1:]
+        aux["Uc"][1, 1:] = (
+            aux["U"][1, 1:] * dbt["rhop"][1:, telaps]
+            - dConfig["lambda"]
+            * (
+                aux["Fp"][1, 1:] * dbt["rhop"][1:, telaps]
+                - aux["Fp"][1, :-1] * dbt["rhop"][:-1, telaps]
+            )
+            + dConfig["dtmin"] * aux["Gvp"][1, 1:] * dbt["rhop"][1:, telaps]
+        ) / dbt["rhop"][1:, telaps]
 
-    Uc[0, 0] = Uc[0, 1]  # 	! Cond. de front. A inicial
-    if dConfig["idtfaa"] == 1:  #     ! Frontera inicial reflejante
-        Uc[1, 0] = Qaport[0]  # + U[1, 0]
-    elif dConfig["idtfaa"] == 2:  #  ! Frontera inicial abierta
-        Uc[1, 0] = Uc[1, 1]
+        aux = utils._boundary_conditions(dbt, aux, dConfig, telaps, "c")
 
-    # Uc[1, 0] = Qaport[0]
-    if dConfig["idqf"] == 1:  #     ! Cond. de front. A final y Q final
-        Uc[0, -1] = Uc[0, -1]  #        	! A abierta
-        Uc[1, -1] = Uc[1, -1]  #    	! Q abierto
-    elif dConfig["idqf"] == 2:
-        Uc[0, -1] = Uc[0, -2]  # 		     ! A gradiente nulo
-        Uc[1, -1] = qff + qver  #           ! Q fijo
-        Uc[1, -2] = qff + qver  # 		 ! para mejorar el funcionamiento del c�digo
-    else:
-        Uc[1, -1] = Uc[1, -2]
-        Uc[0, -1] = mareateln
-        Uc[0, -2] = mareatelnm
+        # Dry bed algorithm
+        if dConfig["bDryBed"]:
+            mask_dry = utils._dry_soil(dbt, telaps, "c")
 
-    # ! Opci�n seco
-    if dConfig["iddy"]:
-        # for iy in range[0, nx]:
-        dbt["Ac"][:, telaps] = Uc[0, :]
-        dbt["Qc"][:, telaps] = Uc[1, :]
-        # utilsSV.fdry(np, Ac, Qc, A2, Q2, ndy, vdy)
-        dbt = utilsSV.fdry(dbt, db, telaps, "Ac")
-        # for iy in range(1,np):
-        Uc[0, :] = dbt["Ac"][:, telaps]
-        Uc[1, :] = dbt["Qc"][:, telaps]
+        # Update AC and QC
+        dbt["Ac"][:, telaps] = aux["Uc"][0, :]
+        dbt["Qc"][:, telaps] = aux["Uc"][1, :]
 
-    # !!!!!!!!!!!!!!!!!!!! Siguiente paso de tiempo
-    if not dConfig["idfl"]:  #         ! Sin limitador de flujo (MacCormack)
-        Unext[0, :] = 0.5 * (Up[0, :] + Uc[0, :])
-        Unext[1, :] = 0.5 * (Up[1, :] + Uc[1, :])
-    else:  #     ! Con limitador de flujo (TVD-MacCormack)
-        if dConfig["idsgm"] == 0:
-            # for j in range(np):
-            elev = dbt["eta"][:, telaps] + df["z"]
+        # ----------------------------------------------------------------------------------
+        # STEP 3: Update the following time step
+        # ----------------------------------------------------------------------------------
+        if not dConfig["bMcComarckLimiterFlux"]:
+            aux["Un"][0, :] = 0.5 * (aux["Up"][0, :] + aux["Uc"][0, :])
+            aux["Un"][1, :] = 0.5 * (aux["Up"][1, :] + aux["Uc"][1, :])
+        else:
+            # With flow limiter (TVD-MacCormack)
+            if dConfig["bSurfaceGradientMethod"]:
+                df["elev"] = dbt["eta"][:, telaps] - df["z"]
+            aux["D"] = utils._TVD_MacCormack(dbt, df, dConfig, telaps)
 
-            D = utilsSV.limitador(dbt, dConfig, telaps, lambda_)
-            # np, Q, A, B, lambda_, vel, c, elev, idsgm, D
-            # )  #! Calcula t�rmino D (limitador)
+            aux["Un"][0, :-1] = 0.5 * (aux["Up"][0, :-1] + aux["Uc"][0, :-1]) + dConfig[
+                "lambda"
+            ] * (aux["D"][0, 1:] - aux["D"][0, :-1])
+            aux["Un"][1, :-1] = 0.5 * (aux["Up"][1, :-1] + aux["Uc"][1, :-1]) + dConfig[
+                "lambda"
+            ] * (aux["D"][1, 1:] - aux["D"][1, :-1])
+            aux["Un"][0, -1] = aux["Un"][0, -2]
 
-        Unext[0, :-1] = 0.5 * (Up[0, :-1] + Uc[0, :-1]) + lambda_ * (D[0, :] - D[0, :])
-        Unext[1, :-1] = 0.5 * (Up[1, :-1] + Uc[1, :-1]) + lambda_ * (D[1, :] - D[1, :])
+        # Update boundary conditions
+        aux = utils._boundary_conditions(dbt, aux, dConfig, telaps, "n")
 
-    Unext[0, 0] = Unext[0, 1]  # 		    ! Cond. de front. A inicial
-    Unext[1, 0] = Qaport[0]
-    if dConfig["idtfaa"] == 1:  #    ! Frontera inicial reflejante
-        Unext[1, 0] = Qaport[0]
-    elif dConfig["idtfaa"] == 2:  #  ! Frontera inicial abierta
-        Unext[1, 0] = Unext[1, 1]
+        if dConfig["bDensity"]:
+            # Compute salinity gradient
+            ast = utils._salinity_gradient(dbt, dConfig, telaps)
 
-    if dConfig["idqf"] == 1:  #        	! Cond. de front. A final y Q final
-        Unext[0, -1] = Unext[0, -2]  # 		! A abierta
-        Unext[1, -1] = Unext[1, -2]  #  	! Q abierto
-    elif dConfig["idqf"] == 2:
-        Unext[0, -1] = Unext[0, -1]  #  		! A fijo
-        Unext[1, -1] = qff + qver  #           ! Q fijo
-        Unext[1, -2] = qff + qver  # 			! truco para que funcione
-    elif dConfig["idqf"] == 3:
-        Unext[1, -1] = Unext[1, -2]
-        Unext[0, -1] = mareateln
-        Unext[0, -2] = mareatelnm
+        # ----------------------------------------------------------------------------------
+        # Update variables for the following time step
+        # ----------------------------------------------------------------------------------
+        aux["U"][0, :] = aux["Un"][0, :]
+        aux["U"][1, :] = aux["Un"][1, :]
+        aux["F"][0, :] = aux["Un"][1, :]
+        telaps += 1
+        if telaps <= dConfig["iTime"][-1]:
+            dbt["A"][:, telaps] = aux["U"][0, :]
+            dbt["Q"][:, telaps] = aux["U"][1, :]
 
-    U[0, :] = Unext[0, :]
-    U[1, :] = Unext[1, :]
-    F[0, :] = Unext[1, :]
+            if dConfig["bDensity"]:
+                # ----------------------------------------------------------------------
+                # TODO: To define which option follow. Two options:
+                #   - If Q = 0 m3/s here and it is applied the dry bed algorithm,
+                #     the salinity is kept along the estuary
+                #   - If not, the salinity is reduced to zero
+                if dConfig["bDryBed"]:
+                    mask_dry = utils._dry_soil(dbt, telaps)
+                ast[mask_dry] = 0
+                # ----------------------------------------------------------------------
 
-    telaps += 1  # dConfig["tesp"]
-    if telaps <= dConfig["tfin"] / 3600:
-        dbt["A"][:, telaps] = U[0, :]
-        dbt["Q"][:, telaps] = U[1, :]
+                # Seawardside is the ocean
+                ast[-1] = 0
 
+                dbt["S"][:, telaps] = (
+                    ast / dbt["A"][:, telaps].values + dbt["S"][:, telaps - 1].values
+                )
 
-dbt.to_netcdf("pruebaSaintVenant.nc")
+                # Bound the minimum and maximum values of salinity to 0 a 35 psu,
+                mask = dbt["S"][:, telaps] < 0
+                dbt["S"][mask, telaps] = 0
+
+                mask = dbt["S"][:, telaps] > 35
+                dbt["S"][mask, telaps] = 35
+
+    # STEP 4: Save the result to a file
+    # ---------------------------------------------------------------------------------------
+    utils.savefiles(dbt, db, df, dConfig)
