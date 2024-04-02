@@ -25,16 +25,20 @@ You should have received a copy of the GNU General Public License
 along with MarineTools.  If not, see <https://www.gnu.org/licenses/>.
 """
 
-global g
+global g, nu, kappa, gamma
 g = 9.81
+nu = 1.0e-6
+kappa = 0.4
+gamma = 1000.0
 
 
-def clock(initial, telap, dConfig):
+def _clock(initial, it, telaps, dConfig):
     """Compute the advances in time from the beggining of the run
 
     Args:
         initial (datetime): initial time of the run
-        telap (int): time step
+        it (int): number of iterations
+        telaps (float): elapsed time
         dConfig (dict): parameters specifications
 
     Returns:
@@ -52,13 +56,11 @@ def clock(initial, telap, dConfig):
     seconds = str(int(total_seconds % 60)).zfill(2)
     return logger.info(
         f"{hours}:{minutes}:{seconds} - Time steps: "
-        + "{0:4d}".format(telap)
+        + "{0:4d}".format(it)
+        + " - Elapsed time: "
+        + "{0:9.2f}".format(telaps)
         + " - "
-        + "{0:5.2f}".format(
-            np.round(
-                telap * dConfig["fTimeStep"] / dConfig["fFinalTime"] * 100, decimals=2
-            )
-        )
+        + "{0:5.2f}".format(np.round(telaps / dConfig["fFinalTime"] * 100, decimals=2))
         + " % completed"
     )
 
@@ -76,12 +78,15 @@ def _configure_time(dConfig):
     ts = float(ts)
     if units.startswith("second"):
         dConfig["fTimeStep"] = ts
+        dConfig["time_multiplier_factor"] = 1
     elif units.startswith("hour"):
         dConfig["fTimeStep"] = ts * 3600
         dConfig["fFinalTime"] = dConfig["fFinalTime"] * 3600
+        dConfig["time_multiplier_factor"] = 3600
     elif units.startswith("day"):
         dConfig["fTimeStep"] = ts * 3600 * 24
         dConfig["fFinalTime"] = dConfig["fFinalTime"] * 3600 * 24
+        dConfig["time_multiplier_factor"] = 3600 * 24
 
     dConfig["iTime"] = np.arange(int(dConfig["fFinalTime"] / dConfig["fTimeStep"]) + 1)
     return dConfig
@@ -188,7 +193,7 @@ def _initial_condition(dbt, db, df, aux, dConfig):
     return aux
 
 
-def _tidal_level(db, aux, df, dConfig, telaps):
+def _tidal_level(db, aux, df, dConfig, iTime):
     """Obtain the total water level at the seaward due to tidal elevations
 
     Args:
@@ -196,15 +201,17 @@ def _tidal_level(db, aux, df, dConfig, telaps):
         aux (_type_): _description_
         df (_type_): _description_
         dConfig ():
-        telaps (_type_): _description_
+        iTime (_type_): _description_
 
     Returns:
         aux (dict): updated variable with the seaward boundary condition
     """
 
-    # Compute the tidal level at telaps
+    # Compute the tidal level at iTime
     aux["eta_tide"] = np.interp(
-        telaps, aux["tidal_level"].index, aux["tidal_level"]["level"]
+        iTime * dConfig["time_multiplier_factor"],
+        aux["tidal_level"].index,
+        aux["tidal_level"]["level"],
     )
 
     # Compute the total water level at seaward location
@@ -353,13 +360,13 @@ def _calculate_Is(db, dConfig):
     return
 
 
-def _hydraulic_parameters(dbt, db, telaps, predictor=True):
+def _hydraulic_parameters(dbt, db, iTime, predictor=True):
     """Compute the hydraulic sections as function of A
 
     Args:
         dbt (xr): the database with the variables in space and time
         db (xr): information about the geometry of the sections in arrays
-        telaps (int): _description_
+        iTime (int): _description_
         pred (bool, optional): for predictor (True) or corrector (False). Defaults to True.
 
     Returns:
@@ -367,7 +374,7 @@ def _hydraulic_parameters(dbt, db, telaps, predictor=True):
     """
 
     vars = ["Rh", "B", "eta", "beta", "I1", "I2", "xl", "xr"]
-    A = np.tile(dbt["A"][:, telaps].values, [db.sizes["z"], 1]).T
+    A = np.tile(dbt["A"][:, iTime].values, [db.sizes["z"], 1]).T
 
     # Compute the index where the given area is found
     indexes_db = np.argmin(np.abs(A - db["A"].values), axis=1, keepdims=True)
@@ -376,15 +383,15 @@ def _hydraulic_parameters(dbt, db, telaps, predictor=True):
     # Check that computed area is below the maximum area given in the inputs
     if sum(mask) > 0:
         str_ = ""
-        for val in dbt["A"][mask.T[0], telaps].values:
+        for val in dbt["A"][mask.T[0], iTime].values:
             str_ = str(val) + ", "
         str_ = str_[:-2]
         str_ += " m2"
-        raise ValueError("Area outside the range given in the inputs: " + str_)
+        raise ValueError("Flooding area outside the range given in the inputs: " + str_)
 
     # Obtain the proportional factor between areas
     facpr = (
-        dbt["A"][:, telaps]
+        dbt["A"][:, iTime]
         - np.take_along_axis(db["A"][:].values, indexes_db, axis=1)[:, 0]
     ) / (
         np.take_along_axis(db["A"][:].values, indexes_db + 1, axis=1)[:, 0]
@@ -398,7 +405,7 @@ def _hydraulic_parameters(dbt, db, telaps, predictor=True):
         else:
             varname = var + "p"
 
-        dbt[varname][:, telaps] = (
+        dbt[varname][:, iTime] = (
             np.take_along_axis(db[var][:].values, indexes_db, axis=1)[:, 0]
             + (
                 np.take_along_axis(db[var][:].values, indexes_db + 1, axis=1)[:, 0]
@@ -722,7 +729,11 @@ def _fluvial_contribution(dbt, hydro, dConfig):
     """
     for node in hydro.columns:
         dbt["q"][node, :] = (
-            np.interp(dConfig["iTime"] * 3600, hydro.index.values, hydro[node])
+            np.interp(
+                dConfig["iTime"] * dConfig["time_multiplier_factor"],
+                hydro.index.values,
+                hydro[node],
+            )
             / dConfig["dx"]
         )
 
@@ -826,35 +837,35 @@ def _read_sediments(dConfig):
     return sedProp
 
 
-def _dry_soil(dbt, telaps, var_=""):
+def _dry_soil(dbt, iTime, var_=""):
     """_summary_
 
     Args:
        dbt (xr): the database with the variables in space and time
-        telaps (_type_): _description_
+        iTime (_type_): _description_
         var_ (str, optional): _description_. Defaults to "".
 
     Returns:
         _type_: _description_
     """
-    Adry = 1e-3
-    Qdry = 1e-5  # to ensure that U = Q/A ~ 0
+    Adry = 1e-8
+    Qdry = 1e-10  # to ensure that U = Q/A ~ 0
 
-    mask = (dbt["A" + var_][:, telaps] < Adry) | (dbt["Q" + var_][:, telaps] < Qdry)
-    dbt["A" + var_][mask, telaps] = Adry
-    dbt["Q" + var_][mask, telaps] = Qdry
+    mask = dbt["A" + var_][:, iTime] < Adry  # | (dbt["Q" + var_][:, iTime] < Qdry)
+    dbt["A" + var_][mask, iTime] = Adry
+    dbt["Q" + var_][mask, iTime] = Qdry
 
     return mask
 
 
-def _TVD_MacCormack(dbt, df, dConfig, telaps):
+def _TVD_MacCormack(dbt, df, dConfig, iTime):
     """_summary_
 
     Args:
         dbt (xr): the database with the variables in space and time
         df (_type_): _description_
         dConfig (dict): parameters specifications
-        telaps (_type_): _description_
+        iTime (_type_): _description_
 
     Returns:
         _type_: _description_
@@ -873,31 +884,31 @@ def _TVD_MacCormack(dbt, df, dConfig, telaps):
 
     # for i in range(dConfig["nx"]):
     umed = (
-        dbt["Q"][1:, telaps] / np.sqrt(dbt["A"][1:, telaps])
-        + dbt["Q"][:-1, telaps] / np.sqrt(dbt["A"][:-1, telaps])
-    ) / (np.sqrt(dbt["A"][1:, telaps]) + np.sqrt(dbt["A"][:-1, telaps]))
-    Amed = (np.sqrt(dbt["A"][1:, telaps]) + np.sqrt(dbt["A"][:-1, telaps])) / 2.0
-    cmed = (np.sqrt(dbt["c"][1:, telaps]) + np.sqrt(dbt["c"][:-1, telaps])) / 2.0
+        dbt["Q"][1:, iTime] / np.sqrt(dbt["A"][1:, iTime])
+        + dbt["Q"][:-1, iTime] / np.sqrt(dbt["A"][:-1, iTime])
+    ) / (np.sqrt(dbt["A"][1:, iTime]) + np.sqrt(dbt["A"][:-1, iTime]))
+    Amed = (np.sqrt(dbt["A"][1:, iTime]) + np.sqrt(dbt["A"][:-1, iTime])) / 2.0
+    cmed = (np.sqrt(dbt["c"][1:, iTime]) + np.sqrt(dbt["c"][:-1, iTime])) / 2.0
     a1med = umed + cmed
     a2med = umed - cmed
     e1med[1, :] = a1med
     e2med[1, :] = a2med
     if not dConfig["bSurfaceGradientMethod"]:
         alfa1med = (
-            (dbt["Q"][1:, telaps] - dbt["Q"][:-1, telaps])
-            + (-umed + cmed) * (Amed - dbt["A"][:-1, telaps])
+            (dbt["Q"][1:, iTime] - dbt["Q"][:-1, iTime])
+            + (-umed + cmed) * (Amed - dbt["A"][:-1, iTime])
         ) / (2.0 * cmed)
         alfa2med = -(
-            (dbt["Q"][1:, telaps] - dbt["Q"][:-1, telaps])
-            + (-umed - cmed) * (Amed - dbt["A"][:-1, telaps])
+            (dbt["Q"][1:, iTime] - dbt["Q"][:-1, iTime])
+            + (-umed - cmed) * (Amed - dbt["A"][:-1, iTime])
         ) / (2.0 * cmed)
     else:
         alfa1med = (
-            dbt["B"][:-1, telaps]
+            dbt["B"][:-1, iTime]
             * (
                 (
-                    dbt["Q"][1:, telaps] / dbt["B"][1:, telaps]
-                    - dbt["Q"][:-1, telaps] / dbt["B"][:-1, telaps]
+                    dbt["Q"][1:, iTime] / dbt["B"][1:, iTime]
+                    - dbt["Q"][:-1, iTime] / dbt["B"][:-1, iTime]
                 )
                 + (-umed.values + cmed.values)
                 * (df["elev"][1:].values - df["elev"][:-1].values)
@@ -905,11 +916,11 @@ def _TVD_MacCormack(dbt, df, dConfig, telaps):
             / (2.0 * cmed)
         )
         alfa2med = (
-            -dbt["B"][:-1, telaps]
+            -dbt["B"][:-1, iTime]
             * (
                 (
-                    dbt["Q"][1:, telaps] / dbt["B"][1:, telaps]
-                    - dbt["Q"][:-1, telaps] / dbt["B"][:-1, telaps]
+                    dbt["Q"][1:, iTime] / dbt["B"][1:, iTime]
+                    - dbt["Q"][:-1, iTime] / dbt["B"][:-1, iTime]
                 )
                 + (-umed.values - cmed.values)
                 * (df["elev"][1:].values - df["elev"][:-1].values)
@@ -925,16 +936,16 @@ def _TVD_MacCormack(dbt, df, dConfig, telaps):
         delta1 = np.max(
             [
                 np.zeros(dConfig["nx"] - 1),
-                a1med - (dbt["U"][:-1, telaps] + dbt["c"][:-1, telaps]),
-                (dbt["U"][1:, telaps] + dbt["c"][1:, telaps]) - a1med,
+                a1med - (dbt["U"][:-1, iTime] + dbt["c"][:-1, iTime]),
+                (dbt["U"][1:, iTime] + dbt["c"][1:, iTime]) - a1med,
             ],
             axis=0,
         )
         delta2 = np.max(
             [
                 np.zeros(dConfig["nx"] - 1),
-                a2med - (dbt["U"][:-1, telaps] - dbt["c"][:-1, telaps]),
-                (dbt["U"][1:, telaps] - dbt["c"][1:, telaps]) - a2med,
+                a2med - (dbt["U"][:-1, iTime] - dbt["c"][:-1, iTime]),
+                (dbt["U"][1:, iTime] - dbt["c"][1:, iTime]) - a2med,
             ],
             axis=0,
         )
@@ -949,7 +960,7 @@ def _TVD_MacCormack(dbt, df, dConfig, telaps):
     mask = np.abs(a2med) <= delta2
     psi2med[mask] = delta2[mask]
 
-    #! C�lculo de r
+    # Computing r
     mask = alfa1med == 0
     r1med[mask] = 1
 
@@ -1021,14 +1032,14 @@ def _TVD_MacCormack(dbt, df, dConfig, telaps):
     return D
 
 
-def _density(dbt, dConfig, sedProp, telaps, predictor=True):
+def _density(dbt, dConfig, sedProp, iTime, predictor=True):
     """_summary_
 
     Args:
         dbt (xr): the database with the variables in space and time
         dConfig (dict): parameters specifications
         sedProp (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
         predictor (bool, optional): _description_. Defaults to True.
     """
     if predictor:
@@ -1036,24 +1047,24 @@ def _density(dbt, dConfig, sedProp, telaps, predictor=True):
     else:
         var_ = "p"
 
-    rhow = 1000 * (1 + dConfig["fSalinityBeta"] * dbt["S"][:, telaps])
-    dbt["rho" + var_][:, telaps] = (
+    rhow = 1000 * (1 + dConfig["fSalinityBeta"] * dbt["S"][:, iTime])
+    dbt["rho" + var_][:, iTime] = (
         rhow
         + (1 - rhow / 1000 / sedProp["rhos"])
-        * dbt["Qt"][:, telaps]
-        / (dbt["A" + var_][:, telaps] * dConfig["dx"])
+        * dbt["Qt"][:, iTime]
+        / (dbt["A" + var_][:, iTime] * dConfig["dx"])
         * dConfig["dtmin"]
     )
     return
 
 
-def _salinity(dbt, dConfig, telaps, var_="p"):
+def _salinity(dbt, dConfig, iTime, var_="p"):
     """_summary_
 
     Args:
         dbt (xr): the database with the variables in space and time
         dConfig (dict): parameters specifications
-        telaps (_type_): _description_
+        iTime (_type_): _description_
         var_: "p", "c", ""
 
     Returns:
@@ -1061,48 +1072,48 @@ def _salinity(dbt, dConfig, telaps, var_="p"):
     """
 
     asdif = (
-        dbt["A" + var_][2:, telaps].values * dbt["S"][2:, telaps].values
-        + dbt["A" + var_][:-2, telaps].values * dbt["S"][:-2, telaps].values
+        dbt["A" + var_][2:, iTime].values * dbt["S"][2:, iTime].values
+        + dbt["A" + var_][:-2, iTime].values * dbt["S"][:-2, iTime].values
     ) / 2
     asdif = np.hstack([asdif[0], asdif])
     asdif = np.hstack([asdif[0], asdif])
 
-    dbt["S"][:, telaps] = asdif / dbt["A" + var_][:, telaps].values
-    mask = dbt["S"][:, telaps] < 0
-    dbt["S"][mask, telaps] = 0
+    dbt["S"][:, iTime] = asdif / dbt["A" + var_][:, iTime].values
+    mask = dbt["S"][:, iTime] < 0
+    dbt["S"][mask, iTime] = 0
 
-    mask = dbt["S"][:, telaps] > 35
-    dbt["S"][mask, telaps] = 35
-    dbt["S"][-1, telaps] = 20
+    mask = dbt["S"][:, iTime] > 35
+    dbt["S"][mask, iTime] = 35
+    dbt["S"][-1, iTime] = 20
     return dbt
 
 
-def _salinity_gradient(dbt, dConfig, telaps):
+def _salinity_gradient(dbt, dConfig, iTime):
     """_summary_
 
     Args:
         dbt (xr): the database with the variables in space and time
         dConfig (dict): parameters specifications
-        telaps (_type_): _description_
+        iTime (_type_): _description_
 
     Returns:
         _type_: _description_
     """
 
-    kasdif_forward = dbt["A"][1:, telaps].values * (
-        dbt["S"][1:, telaps].values - dbt["S"][:-1, telaps].values
+    kasdif_forward = dbt["A"][1:, iTime].values * (
+        dbt["S"][1:, iTime].values - dbt["S"][:-1, iTime].values
     )
     kasdif_forward = np.hstack([kasdif_forward, kasdif_forward[-1]])
 
-    kasdif_backward = dbt["A"][:-1, telaps].values * (
-        dbt["S"][1:, telaps].values - dbt["S"][:-1, telaps].values
+    kasdif_backward = dbt["A"][:-1, iTime].values * (
+        dbt["S"][1:, iTime].values - dbt["S"][:-1, iTime].values
     )
     kasdif_backward = np.hstack([kasdif_backward[0], kasdif_backward])
 
     ausdif = (
         (
-            dbt["Q"][2:, telaps].values * dbt["S"][2:, telaps].values
-            - dbt["Q"][:-2, telaps].values * dbt["S"][:-2, telaps].values
+            dbt["Q"][2:, iTime].values * dbt["S"][2:, iTime].values
+            - dbt["Q"][:-2, iTime].values * dbt["S"][:-2, iTime].values
         )
         * dConfig["lambda"]
         / 2
@@ -1111,8 +1122,8 @@ def _salinity_gradient(dbt, dConfig, telaps):
         [
             # ausdif[0],
             (
-                dbt["Q"][1, telaps].values * dbt["S"][1, telaps].values
-                - dbt["Q"][0, telaps].values * dbt["S"][0, telaps].values
+                dbt["Q"][1, iTime].values * dbt["S"][1, iTime].values
+                - dbt["Q"][0, iTime].values * dbt["S"][0, iTime].values
             )
             * dConfig["lambda"],  # dConfig["dx"]
             ausdif,
@@ -1123,9 +1134,9 @@ def _salinity_gradient(dbt, dConfig, telaps):
         [
             ausdif,
             (
-                dbt["Q"][-1, telaps].values
+                dbt["Q"][-1, iTime].values
                 * dbt["S"][-1, 0].values  # TODO: este valor debería ser el del océano
-                - dbt["Q"][-2, telaps].values * dbt["S"][-2, telaps].values
+                - dbt["Q"][-2, iTime].values * dbt["S"][-2, iTime].values
             )
             * dConfig["lambda"],
         ]
@@ -1136,34 +1147,32 @@ def _salinity_gradient(dbt, dConfig, telaps):
         * dConfig["lambda"] ** 2
         / dConfig["dtmin"]
         * (kasdif_forward - kasdif_backward)
-        - ausdif  # El signo debe ser negativo
+        - ausdif
     )
     return ast
 
 
-def _vanRijn(sedProp, dbt, df, telaps):
-    """_summary_
+def _vanRijn(sedProp, dbt, df, iTime):
+    """Compute the bedload and suspended sediment transport using the van Rijn
+    equation (van Rijn, 1992)
 
     Args:
-        sedProp (_type_): _description_
+        sedProp (dict): sediment properties
         dbt (xr): the database with the variables in space and time
         df (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
     """
 
-    g = 9.81
-    nu = 1.0e-6
-    kappa = 0.4
-    gamma = 1000.0
-
     #  ! Cuidado con el signo, regresar despu�s
-    vel = np.abs(dbt["U"][:, telaps].values)
+    vel = np.abs(dbt["U"][:, iTime].values)
     #  !Sf=abs(vel)
     # direc = np.sign(vel)
 
     # Cálculo del transporte de fondo POR ARRASTRE: ######################
-    c_1 = 18 * np.log((12 * dbt["Rh"][:, telaps].values) / (3 * sedProp["D90"]))
-    u_star = ((g**0.5) / (c_1)) * dbt["U"][:, telaps].values
+    c_1 = 18 * np.log((12 * dbt["Rh"][:, iTime].values) / (3 * sedProp["D90"]))
+    mask = c_1 < 1e-3
+    c_1[mask] = 1e-3
+    u_star = ((g**0.5) / (c_1)) * vel
 
     shields_crit = 0.0013 * sedProp["Diamx"] ** 0.29
     if sedProp["Diamx"] < 150:
@@ -1190,7 +1199,7 @@ def _vanRijn(sedProp, dbt, df, telaps):
         * sedProp["Diamx"] ** -0.3
     )
 
-    dbt["Qb"][:, telaps] = (df["signS0"] * gb * dbt["B"][:, telaps]) / (
+    dbt["Qb"][:, iTime] = (gb * dbt["B"][:, iTime]) / (  # *df["signS0"])
         sedProp["rhos"] * gamma
     )  # Volum�trico
 
@@ -1201,24 +1210,26 @@ def _vanRijn(sedProp, dbt, df, telaps):
     deltab = sedProp["Dmed"] * 0.3 * sedProp["Diamx"] ** 0.7 * T**0.5
 
     #! Velocidad al cortante
-    Ux = (g * dbt["Rh"][:, telaps].values * df["Sf"].values) ** 0.5
+    Ux = (
+        g * dbt["Rh"][:, iTime].values * np.abs(df["Sf"].values)
+    ) ** 0.5  # TODO: direction
     # mask = np.abs(Ux) < 1e-4  # TODO: poniendo limites a los ceros
     # Ux[mask] = 1e-4
 
     #! Rugosidad equivalente de Nikurazde
-    # TODO: MCB - no estoy del todo convencido de que h deba ser dbt["eta"][:, telaps]
+    # TODO: MCB - no estoy del todo convencido de que h deba ser dbt["eta"][:, iTime]
     # ks = (
-    #     12.0 * dbt["eta"][:, telaps].values / np.exp(vel / (2.5 * vel))
+    #     12.0 * dbt["eta"][:, iTime].values / np.exp(vel / (2.5 * vel))
     # )
 
     #! Nivel de referencia
     # a = ks  #         ! Elegir entre    OJO
     a = deltab  # uno y otro
-    mask = a < 0.01 * dbt["eta"][:, telaps]
-    a[mask] = 0.01 * dbt["eta"][mask, telaps].values  #! correci�n
+    mask = a < 0.01 * dbt["eta"][:, iTime]
+    a[mask] = 0.01 * dbt["eta"][mask, iTime].values  #! correci�n
 
-    mask = a > 0.5 * dbt["eta"][:, telaps]
-    a[mask] = 0.5 * dbt["eta"][mask, telaps].values
+    mask = a > 0.5 * dbt["eta"][:, iTime]
+    a[mask] = 0.5 * dbt["eta"][mask, iTime].values
 
     #! Concentraci�n de referencia, en la elevaci�n z=a
     Ca = 0.117 * gamma * sedProp["rhos"] * T / sedProp["Diamx"]  # 		! En fondo plano
@@ -1277,7 +1288,7 @@ def _vanRijn(sedProp, dbt, df, telaps):
     zp = zr + psi
 
     # ! Coeficiente adimensional A (Adim)
-    Adim = a / dbt["eta"][:, telaps].values
+    Adim = a / dbt["eta"][:, iTime].values
 
     # ! Coeficiente adimensional F
     F = np.zeros(len(Adim))
@@ -1287,19 +1298,19 @@ def _vanRijn(sedProp, dbt, df, telaps):
     )  # TODO: verificar que la máscara es teóricamente aceptable o debo imponer un F máximo
 
     # Transporte del fondo en suspensión, calculado con esfuerzos
-    gbs1 = Ca * dbt["eta"][:, telaps] * vel * F
+    gbs1 = Ca * dbt["eta"][:, iTime] * vel * F
 
     # Velocidad crítica
     # velc = (
     #     0.082516
     #     * sedProp["D50"] ** 0.1
-    #     * np.log(4.0 * dbt["eta"][:, telaps].values / sedProp["D90"])
+    #     * np.log(4.0 * dbt["eta"][:, iTime].values / sedProp["D90"])
     # )
     # if sedProp["D50"] >= 0.0005:
     #     velc = (
     #         3.691500
     #         * sedProp["D50"] ** 0.6
-    #         * np.log(4.0 * dbt["eta"][:, telaps].values / sedProp["D90"])
+    #         * np.log(4.0 * dbt["eta"][:, iTime].values / sedProp["D90"])
     #     )
 
     # ! Transporte de fondo en suspensi�n, calculado con la velocidad media
@@ -1317,16 +1328,16 @@ def _vanRijn(sedProp, dbt, df, telaps):
 
     # ! Elecci�n de transporte   ! OJO; manualmente
     gbs = gbs1  # !gbs=gbs2
-    dbt["Qs"][:, telaps] = (
-        df["signS0"] * gbs / (sedProp["rhos"] * gamma) * dbt["B"][:, telaps].values
+    dbt["Qs"][:, iTime] = (
+        gbs / (sedProp["rhos"] * gamma) * dbt["B"][:, iTime].values  # * df["signS0"]
     )  # ! Volum�trico
-    dbt["Qt"][:, telaps] = dbt["Qs"][:, telaps] + dbt["Qb"][:, telaps]
-    mask = dbt["Qt"][:, telaps] < 1e-6
-    dbt["Qt"][mask, telaps] = 0
+    dbt["Qt"][:, iTime] = dbt["Qs"][:, iTime] + dbt["Qb"][:, iTime]
+    mask = dbt["Qt"][:, iTime] < 1e-6
+    dbt["Qt"][mask, iTime] = 0
     return
 
 
-def _gAS_terms(dbt, df, aux, config, telaps, predictor=True):
+def _gAS_terms(dbt, df, aux, config, iTime, predictor=True):
     """_summary_
 
     Args:
@@ -1334,7 +1345,7 @@ def _gAS_terms(dbt, df, aux, config, telaps, predictor=True):
         df (_type_): _description_
         aux (_type_): _description_
         config (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
         predictor (bool, optional): _description_. Defaults to True.
 
     Returns:
@@ -1347,47 +1358,47 @@ def _gAS_terms(dbt, df, aux, config, telaps, predictor=True):
         var_ = "p"
 
     if not config["bSourceTermBalance"]:
-        aux["gAS0"] = g * dbt["A" + var_][:, telaps] * df["S0"][:] * df["signS0"]
-        aux["gASf"] = g * dbt["A" + var_][:, telaps] * df["Sf"][:] * df["signSf"]
+        aux["gAS0"] = g * dbt["A" + var_][:, iTime] * df["S0"][:]  # * df["signS0"]
+        aux["gASf"] = g * dbt["A" + var_][:, iTime] * df["Sf"][:]  # * df["signSf"]
     else:
         # Source term balance
         aux["Qmed"][:-1] = (
-            dbt["Q" + var_][1:, telaps].values + dbt["Q" + var_][:-1, telaps].values
+            dbt["Q" + var_][1:, iTime].values + dbt["Q" + var_][:-1, iTime].values
         ) / 2
         aux["Amed"][:-1] = (
-            dbt["A" + var_][1:, telaps].values + dbt["A" + var_][:-1, telaps].values
+            dbt["A" + var_][1:, iTime].values + dbt["A" + var_][:-1, iTime].values
         ) / 2
         aux["Rmed"][:-1] = (
-            dbt["Rh" + var_][1:, telaps].values + dbt["Rh" + var_][:-1, telaps].values
+            dbt["Rh" + var_][1:, iTime].values + dbt["Rh" + var_][:-1, iTime].values
         ) / 2
 
-        aux["Qmed"][-1] = dbt["Q" + var_][-1, telaps].values
-        aux["Amed"][-1] = dbt["A" + var_][-1, telaps].values
-        aux["Rmed"][-1] = dbt["Rh" + var_][-1, telaps].values
+        aux["Qmed"][-1] = dbt["Q" + var_][-1, iTime].values
+        aux["Amed"][-1] = dbt["A" + var_][-1, iTime].values
+        aux["Rmed"][-1] = dbt["Rh" + var_][-1, iTime].values
 
         if predictor:
-            aux["gAS0"] = g * aux["Amed"] * df["zmedp"].values * df["signS0"]
+            aux["gAS0"] = g * aux["Amed"] * df["zmedp"].values  # * df["signS0"]
         else:
-            aux["gAS0"] = g * aux["Amed"] * df["zmedc"].values * df["signS0"]
+            aux["gAS0"] = g * aux["Amed"] * df["zmedc"].values  # * df["signS0"]
         aux["gASf"] = (
             g
             * df["nmann1"].values ** 2.0
             * aux["Qmed"]
             * np.abs(aux["Qmed"])
             / (aux["Amed"] * aux["Rmed"] ** (4.0 / 3.0))
-        ) * df["signSf"]
+        )  # * df["signSf"]
 
     return aux
 
 
-def _F_terms(dbt, aux, dConfig, telaps, predictor=True):
+def _F_terms(dbt, aux, dConfig, iTime, predictor=True):
     """_summary_
 
     Args:
         dbt (xr): the database with the variables in space and time
         aux (_type_): _description_
         dConfig (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
         predictor (bool, optional): _description_. Defaults to True.
 
     Returns:
@@ -1398,24 +1409,24 @@ def _F_terms(dbt, aux, dConfig, telaps, predictor=True):
     else:
         var_ = "p"
 
-    aux["F" + var_][0, :] = dbt["Q" + var_][:, telaps]
+    aux["F" + var_][0, :] = dbt["Q" + var_][:, iTime]
     aux["F" + var_][1, :] = (
-        dbt["Q" + var_][:, telaps].values ** 2.0 / dbt["A" + var_][:, telaps].values
-        + g * dbt["I1" + var_][:, telaps].values
+        dbt["Q" + var_][:, iTime].values ** 2.0 / dbt["A" + var_][:, iTime].values
+        + g * dbt["I1" + var_][:, iTime].values
     )
     if dConfig["bBeta"]:
-        aux["F" + var_][1, :] = dbt["beta"][:, telaps].values * aux["F" + var_][1, :]
+        aux["F" + var_][1, :] = dbt["beta"][:, iTime].values * aux["F" + var_][1, :]
 
     return aux
 
 
-def _Gv_terms(dbt, aux, telaps, predictor=True):
+def _Gv_terms(dbt, aux, iTime, predictor=True):
     """_summary_
 
     Args:
         dbt (xr): the database with the variables in space and time
         aux (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
         predictor (bool, optional): _description_. Defaults to True.
 
     Returns:
@@ -1425,21 +1436,21 @@ def _Gv_terms(dbt, aux, telaps, predictor=True):
         var_ = ""
     else:
         var_ = "p"
-    aux["Gv" + var_][0, :] = dbt["q"][:, telaps].values  # qpuntual[:]
+    aux["Gv" + var_][0, :] = dbt["q"][:, iTime].values  # qpuntual[:]
     aux["Gv" + var_][1, :] = (
-        g * dbt["I2" + var_][:, telaps].values + aux["gAS0"] - aux["gASf"]
+        g * dbt["I2" + var_][:, iTime].values + aux["gAS0"] - aux["gASf"]
     )
     return aux
 
 
-def _conditionMurillo(dbt, df, config, telaps):
+def _conditionMurillo(dbt, df, config, iTime):
     """_summary_
 
     Args:
         dbt (_type_): _description_
         df (_type_): _description_
         config (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
 
     Returns:
         _type_: _description_
@@ -1447,77 +1458,84 @@ def _conditionMurillo(dbt, df, config, telaps):
     cdx = 0.6
     nmr = 0
     nmur = cdx * np.sqrt(
-        2 * dbt["Rh"][:, telaps].values ** (2.0 / 3.0) / (g * config["dx"])
+        2 * dbt["Rh"][:, iTime].values ** (2.0 / 3.0) / (g * config["dx"])
     )
     mask = nmur < df["nmann"]
     df.loc[mask, "nmann1"] = nmur[mask]
     # facmr[mask] = nmur[mask] / df.loc[mask, "nmann"]
-    dbt["I1"][mask, telaps] = (
-        dbt["I1"][mask, telaps] * nmur[mask] / df.loc[mask, "nmann"]
-    )
+    dbt["I1"][mask, iTime] = dbt["I1"][mask, iTime] * nmur[mask] / df.loc[mask, "nmann"]
     vmr = mask
 
     return vmr, nmur
 
 
-def _courant_number(dbt, df, dConfig, telaps):
-    """_summary_
+def _courant_number(dbt, df, dConfig, iTime):
+    """Compute the time step through the Courant number. The Courant number includes:
+    mean water velocity, perturbation velocity and the salinity dispersion
 
     Args:
         dbt (_type_): _description_
         df (_type_): _description_
         dConfig (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
 
     Returns:
         aux (dict): update the input dictionary with the configuration
     """
     # Cálculo del valor del paso de tiempo, dependiente de Courant, de la velocidad
     # media del flujo, de propagación de las perturbaciones y de la dispersión salina
-    dbt["U"][:, telaps] = (
-        dbt["Q"][:, telaps]
-        / dbt["A"][:, telaps]
-        * df["signS0"]  # MCB - added *df["signS0"]
-    )  #    ! velocidad media
-    dbt["c"][:, telaps] = np.sqrt(
-        g * dbt["A"][:, telaps] / dbt["B"][:, telaps]
-    )  #  ! celeridad de las perturbaciones
-    # dbt["fKH"][:, telaps] = dConfig["fKH"] / dbt["B"][:, telaps]
+    dbt["U"][:, iTime] = (
+        dbt["Q"][:, iTime] / dbt["A"][:, iTime]  # * df["signS0"]
+    )  # mean velocity
+    dbt["c"][:, iTime] = np.sqrt(
+        g * dbt["A"][:, iTime] / dbt["B"][:, iTime]
+    )  #  perturbation celerity
+
+    # Remove locations where bed is dry
+    mask = dbt["A"][:, iTime].values != 1e-8
+    sum_mask = sum(mask)
+
+    if sum_mask == 0:
+        mask[-1] = True
+
     dtpr = (
         dConfig["fCourantNo"]
         * dConfig["dx"]
-        / (np.abs(dbt["U"][:, telaps]) + dbt["c"][:, telaps])
+        / (np.abs(dbt["U"][mask, iTime].values) + dbt["c"][mask, iTime].values)
     )
-    dConfig["dtmin"] = np.min(dtpr).values
-    aux_ = np.min(
-        dConfig["fCourantNo"]
-        * dConfig["dx"]
-        / (dConfig["fKH"] / dbt["B"][:, telaps].values)
-    )
-    dConfig["dtmin"] = np.min([dConfig["dtmin"], aux_])
+    dConfig["dtmin"] = np.min(dtpr)
+
+    if dConfig["bDensity"] & (sum_mask != 0):
+        aux_ = np.min(
+            dConfig["fCourantNo"]
+            * dConfig["dx"]
+            / (dConfig["fKH"] / dbt["B"][mask, iTime].values)
+        )
+        dConfig["dtmin"] = np.min([dConfig["dtmin"], aux_])
     return dConfig
 
 
-def _boundary_conditions(dbt, aux, dConfig, telaps, var_="p"):
+def _boundary_conditions(dbt, aux, dConfig, iTime, var_="p"):
     """_summary_
 
     Args:
         dbt (xr): the database with the variables in space and time
         aux (_type_): _description_
         config (_type_): _description_
-        telaps (_type_): _description_
+        iTime (_type_): _description_
         var_ (str, optional): _description_. Defaults to "p".
 
     Returns:
         _type_: _description_
     """
 
-    # aux["U" + var_][0, 0] = aux["U" + var_][0, 1]  # Cond. de front. A inicial
+    aux["U" + var_][0, 0] = aux["U" + var_][0, 1]  # Cond. de front. A inicial
     if dConfig["iInitialBoundaryCondition"] == 1:  # Frontera inicial reflejante
-        aux["U" + var_][1, 0] = dbt["q"][0, telaps]  # Qaport[0]
+        aux["U" + var_][1, 0] = dbt["q"][0, iTime]
     elif dConfig["iInitialBoundaryCondition"] == 2:  # Frontera inicial abierta
         aux["U" + var_][1, 0] = aux["U" + var_][1, 1]
 
+    aux["U" + var_][1, -1] = aux["U" + var_][1, -2]
     if dConfig["iFinalBoundaryCondition"] == 1:  # then Cond. de front. Q final
         aux["U" + var_][0, -1] = aux["U" + var_][0, -2]  # Cond. de front. A final
         aux["U" + var_][1, -1] = aux["U" + var_][1, -2]  # Q abierto

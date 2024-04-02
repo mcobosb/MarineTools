@@ -70,7 +70,7 @@ def main(sConfigFilename, iVersion=1):
         - This verions allow the computation of the sediment density (bedload, suspended
         sediment concentration and salinity) coupling the density to the TVD MacCormack
         scheme and updating the salinity with Diez-Minguito et al. (2013).
-        - The time step is computed according to fast progation velocity of fluid,
+        - The time step is computed according to fast propagation velocity of fluid,
         perturbations, dispersion (and tides)
         - It will include the tidal currents (v 2.0.0)
 
@@ -118,6 +118,7 @@ def main(sConfigFilename, iVersion=1):
 
         # Reading initial along-estuary salinity
         dbt["S"][:, 0] = read.csv(dConfig["sSalinityFilename"]).values[:, 0]
+        aux["salinity"] = dbt["S"][:, 0].values
 
     # Fix the initial condition of the estuary
     aux = utils._initial_condition(dbt, db, df, aux, dConfig)
@@ -128,58 +129,84 @@ def main(sConfigFilename, iVersion=1):
     # ----------------------------------------------------------------------------------
     # INITIALIZE THE SCRIPT
     # ----------------------------------------------------------------------------------
-    for telaps in dConfig["iTime"]:
+    iTime = 0  # time index
+    fTelaps = 0  # time elapsed
+    it = 0  # number of iteratinos
+    # for iTime in dConfig["iTime"]:
+    while iTime < dConfig["iTime"][-1]:
 
         # Elapsed time - clock
-        utils.clock(initial, telaps, dConfig)
+        utils._clock(initial, it, fTelaps, dConfig)
 
         # Computing the water level due to tides at the seaward boundary
-        aux = utils._tidal_level(db, aux, df, dConfig, telaps)
+        aux = utils._tidal_level(db, aux, df, dConfig, iTime)
 
         # Dry bed algorithm
         if dConfig["bDryBed"]:
-            mask_dry = utils._dry_soil(dbt, telaps)
+            mask_dry = utils._dry_soil(dbt, iTime)
 
         # Murillo condition for dx (verify Manning number)
         if dConfig["bMurilloCondition"]:
-            vmr, nmur = utils._conditionMurillo(dbt, df, dConfig, telaps)
+            vmr, nmur = utils._conditionMurillo(dbt, df, dConfig, iTime)
 
         # Compute the hydraulic parameters as function of A
-        utils._hydraulic_parameters(dbt, db, telaps)
+        utils._hydraulic_parameters(dbt, db, iTime)
 
         # Compute the time step given the Courant number and velocity of information
         # transference
-        dConfig = utils._courant_number(dbt, df, dConfig, telaps)
+        dConfig = utils._courant_number(dbt, df, dConfig, iTime)
+
+        # Bound the maximum timestep to half the given timestep (for convergency)
+        if dConfig["dtmin"] > dConfig["fTimeStep"] / 2:
+            dConfig["dtmin"] = dConfig["fTimeStep"] / 2
+
+        # Check the time step for ensuring the save times
+        if fTelaps == 0:
+            dConfig["next_timestep"] = True
+        elif (
+            fTelaps + dConfig["dtmin"]
+            >= dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"]
+        ):
+            dConfig["dtmin"] = (
+                dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"]
+                - fTelaps
+            )
+            dConfig["next_timestep"] = True
+        else:
+            dConfig["next_timestep"] = False
+
+        fTelaps += dConfig["dtmin"]
+
         dConfig["lambda"] = dConfig["dtmin"] / dConfig["dx"]
 
         df["Sf"] = (
-            dbt["Q"][:, telaps].values
-            * np.abs(dbt["Q"][:, telaps].values)
+            dbt["Q"][:, iTime].values
+            * np.abs(dbt["Q"][:, iTime].values)
             * df["nmann1"].values ** 2.0
             / (
-                dbt["A"][:, telaps].values ** 2.0
-                * dbt["Rh"][:, telaps].values ** (4.0 / 3.0)
+                dbt["A"][:, iTime].values ** 2.0
+                * dbt["Rh"][:, iTime].values ** (4.0 / 3.0)
             )
         )
 
-        df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
-        df["Sf"] = np.abs(df["Sf"])
+        # df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
+        # df["Sf"] = np.abs(df["Sf"])
 
         # ----------------------------------------------------------------------------------
         # Sediment transport
         # ----------------------------------------------------------------------------------
         if dConfig["bDensity"]:
-            utils._vanRijn(sedProp, dbt, df, telaps)
-            utils._density(dbt, dConfig, sedProp, telaps)
+            utils._vanRijn(sedProp, dbt, df, iTime)
+            utils._density(dbt, dConfig, sedProp, iTime)
         else:
-            dbt["rho"][:, telaps] = np.ones(len(dbt["A"][:, telaps])) * 1000
+            dbt["rho"][:, iTime] = np.ones(len(dbt["A"][:, iTime])) * 1000
 
         # ----------------------------------------------------------------------------------
         # Compute gAS, F and Gv terms
         # ----------------------------------------------------------------------------------
-        aux = utils._gAS_terms(dbt, df, aux, dConfig, telaps)
-        aux = utils._F_terms(dbt, aux, dConfig, telaps)
-        aux = utils._Gv_terms(dbt, aux, telaps)
+        aux = utils._gAS_terms(dbt, df, aux, dConfig, iTime)
+        aux = utils._F_terms(dbt, aux, dConfig, iTime)
+        aux = utils._Gv_terms(dbt, aux, iTime)
 
         # Dry bed algorithm
         if dConfig["bDryBed"]:
@@ -191,60 +218,64 @@ def main(sConfigFilename, iVersion=1):
         # STEP 1. Predictor
         # ----------------------------------------------------------------------------------
         aux["Up"][0, :-1] = (
-            aux["U"][0, :-1] * dbt["rho"][:-1, telaps]
+            aux["U"][0, :-1] * dbt["rho"][:-1, iTime]
             - dConfig["lambda"]
             * (
-                aux["F"][0, 1:] * dbt["rho"][1:, telaps]
-                - aux["F"][0, :-1] * dbt["rho"][:-1, telaps]
+                aux["F"][0, 1:] * dbt["rho"][1:, iTime]
+                - aux["F"][0, :-1] * dbt["rho"][:-1, iTime]
             )
-            + dConfig["dtmin"] * aux["Gv"][0, :-1] * dbt["rho"][:-1, telaps]
-        ) / dbt["rho"][:-1, telaps]
+            + dConfig["dtmin"] * aux["Gv"][0, :-1] * dbt["rho"][:-1, iTime]
+        ) / dbt["rho"][:-1, iTime]
         aux["Up"][0, -1] = aux["Up"][0, -2]
 
         aux["Up"][1, :-1] = (
-            aux["U"][1, :-1] * dbt["rho"][:-1, telaps]
+            aux["U"][1, :-1] * dbt["rho"][:-1, iTime]
             - dConfig["lambda"]
             * (
-                aux["F"][1, 1:] * dbt["rho"][1:, telaps]
-                - aux["F"][1, :-1] * dbt["rho"][:-1, telaps]
+                aux["F"][1, 1:] * dbt["rho"][1:, iTime]
+                - aux["F"][1, :-1] * dbt["rho"][:-1, iTime]
             )
-            + dConfig["dtmin"] * aux["Gv"][1, :-1] * dbt["rho"][:-1, telaps]
-        ) / dbt["rho"][:-1, telaps]
+            + dConfig["dtmin"] * aux["Gv"][1, :-1] * dbt["rho"][:-1, iTime]
+        ) / dbt["rho"][:-1, iTime]
+        aux["Up"][1, -1] = aux["Up"][1, -2]
 
-        aux = utils._boundary_conditions(dbt, aux, dConfig, telaps, "p")
+        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "p")
 
         # Update Ap and Qp
-        dbt["Ap"][:, telaps] = aux["Up"][0, :]
-        dbt["Qp"][:, telaps] = aux["Up"][1, :]
+        dbt["Ap"][:, iTime] = aux["Up"][0, :]
+        dbt["Qp"][:, iTime] = aux["Up"][1, :]
 
         # Dry bed algorithm
-        if dConfig["bDryBed"] == 1:
-            mask_dry = utils._dry_soil(dbt, telaps, "p")
+        if dConfig["bDryBed"]:
+            mask_dry = utils._dry_soil(dbt, iTime, "p")
+
+        # aux["Up"][0, :] = dbt["Ap"][:, iTime]
+        # aux["Up"][1, :] = dbt["Qp"][:, iTime]
 
         # Compute the hydraulic parameters as function of A
-        utils._hydraulic_parameters(dbt, db, telaps, False)
+        utils._hydraulic_parameters(dbt, db, iTime, False)
 
         # Check the Murillo condition for dx
         if dConfig["bMurilloCondition"]:
-            dbt["I1p"][vmr, telaps] = (
-                dbt["I1p"][vmr, telaps] * nmur[vmr] / df.loc[vmr, "nmann"]
+            dbt["I1p"][vmr, iTime] = (
+                dbt["I1p"][vmr, iTime] * nmur[vmr] / df.loc[vmr, "nmann"]
             )
 
         df["Sf"] = (
-            dbt["Qp"][:, telaps]
-            * np.abs(dbt["Qp"][:, telaps])
+            dbt["Qp"][:, iTime]
+            * np.abs(dbt["Qp"][:, iTime])
             * df["nmann1"] ** 2.0
-            / (dbt["Ap"][:, telaps] ** 2.0 * dbt["Rhp"][:, telaps] ** (4.0 / 3.0))
+            / (dbt["Ap"][:, iTime] ** 2.0 * dbt["Rhp"][:, iTime] ** (4.0 / 3.0))
         )
-        df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
-        df["Sf"] = np.abs(df["Sf"])
+        # df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
+        # df["Sf"] = np.abs(df["Sf"])
 
         # -----------------------------------------------------------------------------------
         # STEP 1.1: Compute gAS terms
         # -----------------------------------------------------------------------------------
-        aux = utils._gAS_terms(dbt, df, aux, dConfig, telaps, False)
-        aux = utils._F_terms(dbt, aux, dConfig, telaps, False)
-        aux = utils._Gv_terms(dbt, aux, telaps, False)
+        aux = utils._gAS_terms(dbt, df, aux, dConfig, iTime, False)
+        aux = utils._F_terms(dbt, aux, dConfig, iTime, False)
+        aux = utils._Gv_terms(dbt, aux, iTime, False)
 
         # Dry bed algorithm
         if dConfig["bDryBed"]:
@@ -256,56 +287,59 @@ def main(sConfigFilename, iVersion=1):
         # STEP 1.2: Sediment transport
         # ----------------------------------------------------------------------------------
         if dConfig["bDensity"]:
-            utils._vanRijn(sedProp, dbt, df, telaps)
-            utils._density(dbt, dConfig, sedProp, telaps, False)
+            utils._vanRijn(sedProp, dbt, df, iTime)
+            utils._density(dbt, dConfig, sedProp, iTime, False)
         else:
-            dbt["rhop"][:, telaps] = np.ones(len(dbt["A"][:, telaps])) * 1000
+            dbt["rhop"][:, iTime] = np.ones(len(dbt["A"][:, iTime])) * 1000
 
         # -----------------------------------------------------------------
         # STEP 2: Corrector
         # -----------------------------------------------------------------
         aux["Uc"][0, 1:] = (
-            aux["U"][0, 1:] * dbt["rhop"][1:, telaps]
+            aux["U"][0, 1:] * dbt["rhop"][1:, iTime]
             - dConfig["lambda"]
             * (
-                aux["Fp"][0, 1:] * dbt["rhop"][1:, telaps]
-                - aux["Fp"][0, :-1] * dbt["rhop"][:-1, telaps]
+                aux["Fp"][0, 1:] * dbt["rhop"][1:, iTime]
+                - aux["Fp"][0, :-1] * dbt["rhop"][:-1, iTime]
             )
-            + dConfig["dtmin"] * aux["Gvp"][0, 1:] * dbt["rhop"][1:, telaps]
-        ) / dbt["rhop"][1:, telaps]
+            + dConfig["dtmin"] * aux["Gvp"][0, 1:] * dbt["rhop"][1:, iTime]
+        ) / dbt["rhop"][1:, iTime]
         aux["Uc"][0, 0] = aux["Uc"][0, 1]
 
         aux["Uc"][1, 1:] = (
-            aux["U"][1, 1:] * dbt["rhop"][1:, telaps]
+            aux["U"][1, 1:] * dbt["rhop"][1:, iTime]
             - dConfig["lambda"]
             * (
-                aux["Fp"][1, 1:] * dbt["rhop"][1:, telaps]
-                - aux["Fp"][1, :-1] * dbt["rhop"][:-1, telaps]
+                aux["Fp"][1, 1:] * dbt["rhop"][1:, iTime]
+                - aux["Fp"][1, :-1] * dbt["rhop"][:-1, iTime]
             )
-            + dConfig["dtmin"] * aux["Gvp"][1, 1:] * dbt["rhop"][1:, telaps]
-        ) / dbt["rhop"][1:, telaps]
+            + dConfig["dtmin"] * aux["Gvp"][1, 1:] * dbt["rhop"][1:, iTime]
+        ) / dbt["rhop"][1:, iTime]
+        aux["Uc"][1, 0] = aux["Uc"][1, 1]
 
-        aux = utils._boundary_conditions(dbt, aux, dConfig, telaps, "c")
+        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "c")
+
+        # Update Ac and Qc
+        dbt["Ac"][:, iTime] = aux["Uc"][0, :]
+        dbt["Qc"][:, iTime] = aux["Uc"][1, :]
 
         # Dry bed algorithm
         if dConfig["bDryBed"]:
-            mask_dry = utils._dry_soil(dbt, telaps, "c")
+            mask_dry = utils._dry_soil(dbt, iTime, "c")
 
-        # Update AC and QC
-        dbt["Ac"][:, telaps] = aux["Uc"][0, :]
-        dbt["Qc"][:, telaps] = aux["Uc"][1, :]
-
-        # ----------------------------------------------------------------------------------
+        # aux["Uc"][0, :] = dbt["Ac"][:, iTime]
+        # aux["Uc"][1, :] = dbt["Qc"][:, iTime]
+        # ------------------------------------------------------------------------------
         # STEP 3: Update the following time step
-        # ----------------------------------------------------------------------------------
+        # ------------------------------------------------------------------------------
         if not dConfig["bMcComarckLimiterFlux"]:
             aux["Un"][0, :] = 0.5 * (aux["Up"][0, :] + aux["Uc"][0, :])
             aux["Un"][1, :] = 0.5 * (aux["Up"][1, :] + aux["Uc"][1, :])
         else:
             # With flow limiter (TVD-MacCormack)
             if dConfig["bSurfaceGradientMethod"]:
-                df["elev"] = dbt["eta"][:, telaps] - df["z"]
-            aux["D"] = utils._TVD_MacCormack(dbt, df, dConfig, telaps)
+                df["elev"] = dbt["eta"][:, iTime] - df["z"]
+            aux["D"] = utils._TVD_MacCormack(dbt, df, dConfig, iTime)
 
             aux["Un"][0, :-1] = 0.5 * (aux["Up"][0, :-1] + aux["Uc"][0, :-1]) + dConfig[
                 "lambda"
@@ -316,11 +350,11 @@ def main(sConfigFilename, iVersion=1):
             aux["Un"][0, -1] = aux["Un"][0, -2]
 
         # Update boundary conditions
-        aux = utils._boundary_conditions(dbt, aux, dConfig, telaps, "n")
+        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "n")
 
         if dConfig["bDensity"]:
             # Compute salinity gradient
-            ast = utils._salinity_gradient(dbt, dConfig, telaps)
+            ast = utils._salinity_gradient(dbt, dConfig, iTime)
 
         # ----------------------------------------------------------------------------------
         # Update variables for the following time step
@@ -328,10 +362,22 @@ def main(sConfigFilename, iVersion=1):
         aux["U"][0, :] = aux["Un"][0, :]
         aux["U"][1, :] = aux["Un"][1, :]
         aux["F"][0, :] = aux["Un"][1, :]
-        telaps += 1
-        if telaps <= dConfig["iTime"][-1]:
-            dbt["A"][:, telaps] = aux["U"][0, :]
-            dbt["Q"][:, telaps] = aux["U"][1, :]
+
+        import matplotlib.pyplot as plt
+
+        plt.plot(aux["Up"][1, :])
+        plt.plot(aux["Uc"][1, :])
+        plt.plot(aux["Un"][1, :])
+        plt.pause(0.01)
+        # plt.show()
+        # Move or not to the following savetime
+        if dConfig["next_timestep"]:
+            iTime += 1
+
+        if iTime <= dConfig["iTime"][-1]:
+            it += 1
+            dbt["A"][:, iTime] = aux["U"][0, :]
+            dbt["Q"][:, iTime] = aux["U"][1, :]
 
             if dConfig["bDensity"]:
                 # ----------------------------------------------------------------------
@@ -340,23 +386,23 @@ def main(sConfigFilename, iVersion=1):
                 #     the salinity is kept along the estuary
                 #   - If not, the salinity is reduced to zero
                 if dConfig["bDryBed"]:
-                    mask_dry = utils._dry_soil(dbt, telaps)
+                    mask_dry = utils._dry_soil(dbt, iTime)
                 ast[mask_dry] = 0
                 # ----------------------------------------------------------------------
 
+                # TODO: It should be an input option
                 # Seawardside is the ocean
                 ast[-1] = 0
 
-                dbt["S"][:, telaps] = (
-                    ast / dbt["A"][:, telaps].values + dbt["S"][:, telaps - 1].values
-                )
+                dbt["S"][:, iTime] = ast / dbt["A"][:, iTime].values + aux["salinity"]
+                aux["salinity"] = dbt["S"][:, iTime].values
 
                 # Bound the minimum and maximum values of salinity to 0 a 35 psu,
-                mask = dbt["S"][:, telaps] < 0
-                dbt["S"][mask, telaps] = 0
+                mask = dbt["S"][:, iTime] < 0
+                dbt["S"][mask, iTime] = 0
 
-                mask = dbt["S"][:, telaps] > 35
-                dbt["S"][mask, telaps] = 35
+                mask = dbt["S"][:, iTime] > 35
+                dbt["S"][mask, iTime] = 35
 
     # STEP 4: Save the result to a file
     # ---------------------------------------------------------------------------------------
