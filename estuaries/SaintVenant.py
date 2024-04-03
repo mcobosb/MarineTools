@@ -136,15 +136,16 @@ def main(sConfigFilename, iVersion=1):
     iTime = 0  # time index
     fTelaps = 0  # time elapsed
     it = 0  # number of iteratinos
+
     # Elapsed time - clock
     utils._clock(initial, it, fTelaps, dConfig)
+
     while iTime < dConfig["iTime"][-1]:
-
-        # Elapsed time - clock
-        utils._clock(initial, it, fTelaps, dConfig)
-
         # Computing the water level due to tides at the seaward boundary
         aux = utils._tidal_level(db, aux, df, dConfig, iTime)
+
+        # Compute the hydraulic parameters as function of A
+        utils._hydraulic_parameters(dbt, db, iTime)
 
         # Dry bed algorithm
         if dConfig["bDryBed"]:
@@ -153,9 +154,6 @@ def main(sConfigFilename, iVersion=1):
         # Murillo condition for dx (verify Manning number)
         if dConfig["bMurilloCondition"]:
             vmr, nmur = utils._conditionMurillo(dbt, df, dConfig, iTime)
-
-        # Compute the hydraulic parameters as function of A
-        utils._hydraulic_parameters(dbt, db, iTime)
 
         # Compute the time step given the Courant number and velocity of information
         # transference
@@ -208,7 +206,6 @@ def main(sConfigFilename, iVersion=1):
             )
             + dConfig["dtmin"] * aux["Gv"][0, :-1] * dbt["rho"][:-1, iTime]
         ) / dbt["rho"][:-1, iTime]
-        aux["Up"][0, -1] = aux["Up"][0, -2]
 
         aux["Up"][1, :-1] = (
             aux["U"][1, :-1] * dbt["rho"][:-1, iTime]
@@ -219,10 +216,8 @@ def main(sConfigFilename, iVersion=1):
             )
             + dConfig["dtmin"] * aux["Gv"][1, :-1] * dbt["rho"][:-1, iTime]
         ) / dbt["rho"][:-1, iTime]
-        aux["Up"][1, -1] = aux["Up"][1, -2]
-        aux["Up"][1, 0] = dbt["q"][0, iTime].values
 
-        # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "p")
+        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "p")
 
         # Update Ap and Qp
         dbt["Ap"][:, iTime] = aux["Up"][0, :]
@@ -278,7 +273,6 @@ def main(sConfigFilename, iVersion=1):
             )
             + dConfig["dtmin"] * aux["Gvp"][0, 1:] * dbt["rhop"][1:, iTime]
         ) / dbt["rhop"][1:, iTime]
-        aux["Uc"][0, 0] = dbt["Ap"][0, iTime]
 
         aux["Uc"][1, 1:] = (
             aux["U"][1, 1:] * dbt["rhop"][1:, iTime].values
@@ -289,9 +283,8 @@ def main(sConfigFilename, iVersion=1):
             )
             + dConfig["dtmin"] * aux["Gvp"][1, 1:] * dbt["rhop"][1:, iTime]
         ) / dbt["rhop"][1:, iTime].values
-        aux["Uc"][1, 0] = dbt["q"][0, iTime]
 
-        # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "c")
+        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, False)
 
         # Update Ac and Qc
         dbt["Ac"][:, iTime] = aux["Uc"][0, :]
@@ -301,8 +294,8 @@ def main(sConfigFilename, iVersion=1):
         if dConfig["bDryBed"]:
             mask_dry = utils._dry_soil(dbt, iTime, "c")
 
-        # aux["Uc"][0, :] = dbt["Ac"][:, iTime].values
-        # aux["Uc"][1, :] = dbt["Qc"][:, iTime].values
+        aux["Uc"][0, :] = dbt["Ac"][:, iTime].values
+        aux["Uc"][1, :] = dbt["Qc"][:, iTime].values
         # ------------------------------------------------------------------------------
         # STEP 3: Update the following time step
         # ------------------------------------------------------------------------------
@@ -337,8 +330,6 @@ def main(sConfigFilename, iVersion=1):
         # Added to smooth the solution
         aux["Un"][0, 1:] = 0.5 * (aux["Un"][0, 1:] + aux["Un"][0, :-1])
         aux["Un"][1, 1:] = 0.5 * (aux["Un"][1, 1:] + aux["Un"][1, :-1])
-        # Update boundary conditions
-        # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "n")
 
         if dConfig["bDensity"]:
             # Compute salinity gradient
