@@ -303,9 +303,6 @@ def main(sConfigFilename, iVersion=1):
         if not dConfig["bMcComarckLimiterFlux"]:
             aux["Un"][0, :] = 0.5 * (aux["Up"][0, :] + aux["Uc"][0, :])
             aux["Un"][1, :] = 0.5 * (aux["Up"][1, :] + aux["Uc"][1, :])
-            # Added to smooth the solution
-            # aux["Un"][0, 1:] = 0.5 * (aux["Un"][0, 1:] + aux["Un"][0, :-1])
-            # aux["Un"][1, 1:] = 0.5 * (aux["Un"][1, 1:] + aux["Un"][1, :-1])
         else:
             # With flow limiter (TVD-MacCormack)
             if dConfig["bSurfaceGradientMethod"]:
@@ -319,22 +316,13 @@ def main(sConfigFilename, iVersion=1):
                 "lambda"
             ] * (aux["D"][1, 1:] - aux["D"][1, :-1])
 
-            # aux["Un"][0, 0] = 0.5 * (aux["Up"][0, 0] + aux["Uc"][0, 0])
-            # aux["Un"][1, 0] = 0.5 * (aux["Up"][1, 0] + aux["Uc"][1, 0])
-            # aux["Un"][0, -1] = 0.5 * (aux["Up"][0, -1] + aux["Uc"][0, -1])
-            # aux["Un"][1, -1] = 0.5 * (aux["Up"][1, -1] + aux["Uc"][1, -1])
-        # aux["Un"][0, 0] = aux["Un"][0, 1]
-        # aux["Un"][1, 0] = dbt["q"][0, iTime].values
-        # aux["Un"][0, -1] = aux["Un"][0, -2]
-        # aux["Un"][1, -1] = aux["Un"][1, -2]
-
         # Added to smooth the solution
         aux["Un"][0, 1:] = 0.5 * (aux["Un"][0, 1:] + aux["Un"][0, :-1])
         aux["Un"][1, 1:] = 0.5 * (aux["Un"][1, 1:] + aux["Un"][1, :-1])
 
         if dConfig["bDensity"]:
             # Compute salinity gradient
-            ast = utils._salinity_gradient(dbt, dConfig, iTime)
+            aux = utils._salinity_gradient(dbt, aux, dConfig, iTime)
 
         # ----------------------------------------------------------------------------------
         # Update variables for the following time step
@@ -356,29 +344,8 @@ def main(sConfigFilename, iVersion=1):
             dbt["Q"][:, iTime] = aux["U"][1, :]
 
             if dConfig["bDensity"]:
-                # ----------------------------------------------------------------------
-                # TODO: To define which option follow. Two options:
-                #   - If Q = 0 m3/s here and it is applied the dry bed algorithm,
-                #     the salinity is kept along the estuary
-                #   - If not, the salinity is reduced to zero
-                if dConfig["bDryBed"]:
-                    mask_dry = utils._dry_soil(dbt, iTime)
-                ast[mask_dry] = 0
-                # ----------------------------------------------------------------------
-
-                # TODO: It should be an input option
-                # Seawardside is the ocean
-                ast[-1] = 0
-
-                dbt["S"][:, iTime] = ast / dbt["A"][:, iTime].values + aux["salinity"]
-                aux["salinity"] = dbt["S"][:, iTime].values
-
-                # Bound the minimum and maximum values of salinity to 0 a 35 psu,
-                mask = dbt["S"][:, iTime] < 0
-                dbt["S"][mask, iTime] = 0
-
-                mask = dbt["S"][:, iTime] > 35
-                dbt["S"][mask, iTime] = 35
+                aux = utils._salinity(dbt, aux, dConfig, iTime)
+                # utils._density(dbt, dConfig, sedProp, iTime) # TODO: chequeando si calcula correctamente
 
         # Elapsed time - clock
         utils._clock(initial, it, fTelaps, dConfig)
