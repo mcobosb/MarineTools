@@ -194,7 +194,7 @@ def _initial_condition(dbt, db, df, aux, dConfig):
     return aux
 
 
-def _tidal_level(db, aux, df, dConfig, iTime):
+def _tidal_level(db, aux, df, dConfig, fTelaps):
     """Obtain the total water level at the seaward due to tidal elevations
 
     Args:
@@ -210,20 +210,20 @@ def _tidal_level(db, aux, df, dConfig, iTime):
 
     # Compute the tidal level at iTime
     aux["eta_tide"] = np.interp(
-        iTime * dConfig["time_multiplier_factor"],
+        fTelaps,
         aux["tidal_level"].index,
         aux["tidal_level"]["level"],
     )
 
     # Compute the total water level at seaward location
-    aux["total_level_seaward"] = np.interp(
+    aux["tidal_area_seaward"] = np.interp(
         -df.loc[dConfig["nx"] - 1, "z"] + aux["eta_tide"],
         db["eta"][-1, :],
         db["A"][-1, :],
     )
 
     # Compute the total water level next to the seaward location
-    aux["total_level_next_seaward"] = np.interp(
+    aux["tidal_area_next_seaward"] = np.interp(
         -df.loc[dConfig["nx"] - 2, "z"] + aux["eta_tide"],
         db["eta"][-2, :],
         db["A"][-2, :],
@@ -1623,9 +1623,9 @@ def _boundary_conditions(dbt, aux, dConfig, iTime, predictor=True):
             aux["Up"][0, -1] = aux["Up"][0, -2]
             aux["Up"][1, -1] = aux["Up"][1, -2]
         elif dConfig["iFinalBoundaryCondition"] == 1:  # Tidal level
-            aux["Up"][0, -1] = aux["total_level_seaward"]
-            aux["Up"][0, -2] = aux["total_level_next_seaward"]
-            # aux["U" + var_][0, -1] = aux["U" + var_][0, -2]
+            aux["Up"][0, -1] = aux["tidal_area_seaward"]
+            aux["Up"][0, -2] = aux["tidal_area_next_seaward"]
+            # aux["Up"][1, -1] = aux["U"][1, -1]  # TODO: chequeando
         elif dConfig["iFinalBoundaryCondition"] == 2:  # TODO: Discharge flux
             aux["Up"][1, -1] = qff + qver
             aux["Up"][1, -2] = qff + qver  # Improvement for the numerical scheme
@@ -1640,15 +1640,15 @@ def _boundary_conditions(dbt, aux, dConfig, iTime, predictor=True):
 
         # Downward boundary condition
         if dConfig["iFinalBoundaryCondition"] == 0:  # Open flux
-            aux["Up"][0, -1] = aux["Up"][0, -2]
-            aux["Up"][1, -1] = aux["Up"][1, -2]
+            aux["Uc"][0, -1] = aux["Uc"][0, -2]
+            aux["Uc"][1, -1] = aux["Uc"][1, -2]
         elif dConfig["iFinalBoundaryCondition"] == 1:  # Tidal level
-            aux["Up"][0, -1] = aux["total_level_seaward"]
-            aux["Up"][0, -2] = aux["total_level_next_seaward"]
-            # aux["U" + var_][0, -1] = aux["U" + var_][0, -2]
+            aux["Uc"][0, -1] = aux["tidal_area_seaward"]
+            aux["Uc"][0, -2] = aux["tidal_area_next_seaward"]
+            aux["Uc"][1, -1] = aux["Up"][1, -1]  # TODO: chequeando
         elif dConfig["iFinalBoundaryCondition"] == 2:  # TODO: Discharge flux
-            aux["Up"][1, -1] = qff + qver
-            aux["Up"][1, -2] = qff + qver  # Improvement for the numerical scheme
+            aux["Uc"][1, -1] = qff + qver
+            aux["Uc"][1, -2] = qff + qver  # Improvement for the numerical scheme
 
     return aux
 
