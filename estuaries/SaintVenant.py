@@ -1,21 +1,10 @@
 import datetime
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from marinetools.estuaries import utils
 from marinetools.utils import read
 
-fig, axs = plt.subplots(2, 4, sharex=True, figsize=(16, 8))
-axs = axs.flatten()
-axs[0].set_title("U")
-axs[1].set_title("Up")
-axs[2].set_title("Uc")
-axs[3].set_title("Un")
-axs[4].set_title("A")
-axs[5].set_title("F")
-axs[6].set_title("Gv")
-axs[7].set_title("D")
 """This file is part of MarineTools.
 
 MarineTools is free software: you can redistribute it and/or modify
@@ -91,9 +80,9 @@ def main(sConfigFilename, iVersion=1):
     """
     initial = datetime.datetime.now()
 
-    # -----------------------------------------------------------------------------------
+    # ----------------------------------------------------------------------------------
     # READING INPUTS AND INITIALIZING VARIABLES
-    # -----------------------------------------------------------------------------------
+    # ----------------------------------------------------------------------------------
     # Read the configuration file
     if iVersion:
         dConfig = read.xlsx(sConfigFilename, names=["options"])["options"].to_dict()
@@ -137,12 +126,18 @@ def main(sConfigFilename, iVersion=1):
     # Compute the fluvial contribution at every node at the given time steps
     utils._fluvial_contribution(dbt, hydro, dConfig)
 
+    # Inititate the log plots
+    if dConfig["bLog"]:
+        axs = utils._init_logplots()
+
     # ----------------------------------------------------------------------------------
     # INITIALIZE THE SCRIPT
     # ----------------------------------------------------------------------------------
     iTime = 0  # time index
     fTelaps = 0  # time elapsed
     it = 0  # number of iteratinos
+    # Elapsed time - clock
+    utils._clock(initial, it, fTelaps, dConfig)
     while iTime < dConfig["iTime"][-1]:
 
         # Elapsed time - clock
@@ -179,18 +174,18 @@ def main(sConfigFilename, iVersion=1):
             )
         )
 
-        # ----------------------------------------------------------------------------------
+        # ------------------------------------------------------------------------------
         # Sediment transport
-        # ----------------------------------------------------------------------------------
+        # ------------------------------------------------------------------------------
         if dConfig["bDensity"]:
             utils._vanRijn(sedProp, dbt, df, iTime)
             utils._density(dbt, dConfig, sedProp, iTime)
         else:
             dbt["rho"][:, iTime] = np.ones(len(dbt["A"][:, iTime])) * 1000
 
-        # ----------------------------------------------------------------------------------
+        # ------------------------------------------------------------------------------
         # Compute gAS, F and Gv terms
-        # ----------------------------------------------------------------------------------
+        # ------------------------------------------------------------------------------
         aux = utils._gAS_terms(dbt, df, aux, dConfig, iTime)
         aux = utils._F_terms(dbt, aux, dConfig, iTime)
         aux = utils._Gv_terms(dbt, aux, iTime)
@@ -283,7 +278,7 @@ def main(sConfigFilename, iVersion=1):
             )
             + dConfig["dtmin"] * aux["Gvp"][0, 1:] * dbt["rhop"][1:, iTime]
         ) / dbt["rhop"][1:, iTime]
-        aux["Uc"][0, 0] = aux["U"][0, 0]  # dbt["Ap"][0, iTime]
+        aux["Uc"][0, 0] = dbt["Ap"][0, iTime]
 
         aux["Uc"][1, 1:] = (
             aux["U"][1, 1:] * dbt["rhop"][1:, iTime].values
@@ -294,7 +289,7 @@ def main(sConfigFilename, iVersion=1):
             )
             + dConfig["dtmin"] * aux["Gvp"][1, 1:] * dbt["rhop"][1:, iTime]
         ) / dbt["rhop"][1:, iTime].values
-        aux["Uc"][1, 0] = aux["U"][1, 0]  # dbt["q"][0, iTime]
+        aux["Uc"][1, 0] = dbt["q"][0, iTime]
 
         # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "c")
 
@@ -345,22 +340,6 @@ def main(sConfigFilename, iVersion=1):
         # Update boundary conditions
         # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "n")
 
-        axs[0].plot(aux["U"][1, :])
-        axs[1].plot(aux["Up"][1, :])
-        axs[2].plot(aux["Uc"][1, :])
-        axs[3].plot(aux["Un"][1, :])
-        axs[4].plot(dbt["A"][:, iTime])
-        axs[5].plot(
-            (
-                aux["Fp"][1, 1:] * dbt["rhop"][1:, iTime]
-                - aux["Fp"][1, :-1] * dbt["rhop"][:-1, iTime]
-            )
-            / dbt["rhop"][1:, iTime]
-        )
-        axs[6].plot(dConfig["dtmin"] * aux["Gvp"][1, 1:])
-        axs[7].plot(aux["D"][1, :])
-        plt.pause(0.01)
-
         if dConfig["bDensity"]:
             # Compute salinity gradient
             ast = utils._salinity_gradient(dbt, dConfig, iTime)
@@ -375,6 +354,9 @@ def main(sConfigFilename, iVersion=1):
         # Move or not to the following savetime
         if dConfig["next_timestep"]:
             iTime += 1
+
+        if dConfig["bLog"]:
+            utils._log_plots(dbt, aux, dConfig, iTime, axs)
 
         if iTime <= dConfig["iTime"][-1]:
             it += 1
@@ -406,6 +388,9 @@ def main(sConfigFilename, iVersion=1):
                 mask = dbt["S"][:, iTime] > 35
                 dbt["S"][mask, iTime] = 35
 
+        # Elapsed time - clock
+        utils._clock(initial, it, fTelaps, dConfig)
+
     # STEP 4: Save the result to a file
     # ---------------------------------------------------------------------------------------
-    utils.savefiles(dbt, db, df, dConfig)
+    utils._savefiles(dbt, db, df, dConfig)
