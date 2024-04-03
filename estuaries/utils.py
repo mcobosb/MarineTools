@@ -798,10 +798,10 @@ def _initialize_auxiliary(db, df, dConfig):
     df.loc[0, "S0"] = (df.loc[0, "z"] - df.loc[1, "z"]) / dConfig["dx"]
 
     # Minimum slope
-    mask = np.abs(df["S0"]) < 0.01 / dConfig["dx"]
-    df["signS0"] = np.sign(df["S0"])
-    df["S0"] = np.abs(df["S0"])
-    df.loc[mask, "S0"] = 0.01 / dConfig["dx"]
+    # mask = np.abs(df["S0"]) < 0.01 / dConfig["dx"]
+    # df["signS0"] = np.sign(df["S0"])
+    # df["S0"] = np.abs(df["S0"])
+    # df.loc[mask, "S0"] = 0.01 / dConfig["dx"]
 
     # Murillo condition for dx
     df["nmann1"] = df["nmann"].values
@@ -848,12 +848,17 @@ def _dry_soil(dbt, iTime, var_=""):
     Returns:
         _type_: _description_
     """
-    Adry = 1e-8
-    Qdry = 1e-10  # to ensure that U = Q/A ~ 0
+    Adry = dbt["B"][:, iTime] * 0.01  # 1 cm de alto por el ancho, 1e-8
+    # Qdry = 1e-5  # to ensure that U = Q/A ~ 0
+    # mask = np.abs(dbt["Q" + var_][:, iTime]) < Qdry
+    # dbt["Q" + var_][mask, iTime] = Qdry
 
-    mask = dbt["A" + var_][:, iTime] < Adry  # | (dbt["Q" + var_][:, iTime] < Qdry)
-    dbt["A" + var_][mask, iTime] = Adry
-    dbt["Q" + var_][mask, iTime] = Qdry
+    mask = dbt["A" + var_][:, iTime] < Adry
+    dbt["A" + var_][mask, iTime] = Adry[mask]
+
+    # mask = ((dbt["A" + var_][:, iTime] < Adry) | (dbt["Q" + var_][:, iTime] < Qdry))
+    # dbt["A" + var_][mask, iTime] = Adry
+    # dbt["Q" + var_][mask, iTime] = Qdry
 
     return mask
 
@@ -876,7 +881,7 @@ def _TVD_MacCormack(dbt, df, dConfig, iTime):
     e1med, e2med, D = (
         np.ones([2, dConfig["nx"] - 1]),
         np.ones([2, dConfig["nx"] - 1]),
-        np.zeros([2, dConfig["nx"]]),
+        np.zeros([2, dConfig["nx"] + 1]),
     )
     # alfa1med, alfa2med= np.zeros(dConfig["nx"]), np.zeros(dConfig["nx"])
     psi1med, psi2med = np.zeros(dConfig["nx"] - 1), np.zeros(dConfig["nx"] - 1)
@@ -884,46 +889,45 @@ def _TVD_MacCormack(dbt, df, dConfig, iTime):
 
     # for i in range(dConfig["nx"]):
     umed = (
-        dbt["Q"][1:, iTime] / np.sqrt(dbt["A"][1:, iTime])
-        + dbt["Q"][:-1, iTime] / np.sqrt(dbt["A"][:-1, iTime])
-    ) / (np.sqrt(dbt["A"][1:, iTime]) + np.sqrt(dbt["A"][:-1, iTime]))
-    Amed = (np.sqrt(dbt["A"][1:, iTime]) + np.sqrt(dbt["A"][:-1, iTime])) / 2.0
-    cmed = (np.sqrt(dbt["c"][1:, iTime]) + np.sqrt(dbt["c"][:-1, iTime])) / 2.0
+        dbt["Q"][1:, iTime].values / np.sqrt(dbt["A"][1:, iTime].values)
+        + dbt["Q"][:-1, iTime].values / np.sqrt(dbt["A"][:-1, iTime].values)
+    ) / (np.sqrt(dbt["A"][1:, iTime].values) + np.sqrt(dbt["A"][:-1, iTime].values))
+
+    Amed = (dbt["A"][1:, iTime].values + dbt["A"][:-1, iTime].values) / 2.0
+    cmed = (dbt["c"][1:, iTime].values + dbt["c"][:-1, iTime].values) / 2.0
     a1med = umed + cmed
     a2med = umed - cmed
     e1med[1, :] = a1med
     e2med[1, :] = a2med
     if not dConfig["bSurfaceGradientMethod"]:
         alfa1med = (
-            (dbt["Q"][1:, iTime] - dbt["Q"][:-1, iTime])
-            + (-umed + cmed) * (Amed - dbt["A"][:-1, iTime])
+            (dbt["Q"][1:, iTime].values - dbt["Q"][:-1, iTime].values)
+            + (-umed + cmed) * (Amed - dbt["A"][:-1, iTime].values)
         ) / (2.0 * cmed)
         alfa2med = -(
-            (dbt["Q"][1:, iTime] - dbt["Q"][:-1, iTime])
-            + (-umed - cmed) * (Amed - dbt["A"][:-1, iTime])
+            (dbt["Q"][1:, iTime].values - dbt["Q"][:-1, iTime].values)
+            + (-umed - cmed) * (Amed - dbt["A"][:-1, iTime].values)
         ) / (2.0 * cmed)
     else:
         alfa1med = (
-            dbt["B"][:-1, iTime]
-            * (
+            # dbt["B"][:-1, iTime] *
+            (
                 (
-                    dbt["Q"][1:, iTime] / dbt["B"][1:, iTime]
-                    - dbt["Q"][:-1, iTime] / dbt["B"][:-1, iTime]
+                    dbt["Q"][1:, iTime].values / dbt["B"][1:, iTime].values
+                    - dbt["Q"][:-1, iTime].values / dbt["B"][:-1, iTime].values
                 )
-                + (-umed.values + cmed.values)
-                * (df["elev"][1:].values - df["elev"][:-1].values)
+                + (-umed + cmed) * (df["elev"][1:].values - df["elev"][:-1].values)
             )
             / (2.0 * cmed)
         )
         alfa2med = (
-            -dbt["B"][:-1, iTime]
-            * (
+            # -dbt["B"][:-1, iTime] *
+            -(
                 (
-                    dbt["Q"][1:, iTime] / dbt["B"][1:, iTime]
-                    - dbt["Q"][:-1, iTime] / dbt["B"][:-1, iTime]
+                    dbt["Q"][1:, iTime].values / dbt["B"][1:, iTime].values
+                    - dbt["Q"][:-1, iTime].values / dbt["B"][:-1, iTime].values
                 )
-                + (-umed.values - cmed.values)
-                * (df["elev"][1:].values - df["elev"][:-1].values)
+                + (-umed - cmed) * (df["elev"][1:].values - df["elev"][:-1].values)
             )
             / (2.0 * cmed)
         )
@@ -967,7 +971,7 @@ def _TVD_MacCormack(dbt, df, dConfig, iTime):
     imask = np.where(a1med < 0)[0]
     imask = np.asarray([i for i in imask if i != dConfig["nx"] - 2])
     if len(imask) != 0:
-        r1med[imask] = alfa1med[imask + 1] / alfa1med[imask]
+        r1med[imask] = alfa2med[imask + 1] / alfa2med[imask]
 
     mask = a1med == 0
     r1med[mask] = 1
@@ -1020,14 +1024,14 @@ def _TVD_MacCormack(dbt, df, dConfig, iTime):
     fac1pr = alfa1med * psi1med * (1 - dConfig["lambda"] * np.abs(a1med)) * (1 - fi1med)
     fac2pr = alfa2med * psi2med * (1 - dConfig["lambda"] * np.abs(a2med)) * (1 - fi2med)
 
-    D[0, 1:] = 0.5 * (fac1pr * e1med[0, :] + fac2pr * e2med[0, :])
-    D[1, 1:] = 0.5 * (fac1pr * e1med[1, :] + fac2pr * e2med[1, :])
+    D[0, :-2] = 0.5 * (fac1pr * e1med[0, :] + fac2pr * e2med[0, :])
+    D[1, :-2] = 0.5 * (fac1pr * e1med[1, :] + fac2pr * e2med[1, :])
 
-    D[0, 0] = D[0, 1]
-    D[1, 0] = D[1, 1]
+    # D[0, 0] = D[0, 1]
+    # D[1, 0] = D[1, 1]
 
-    D[0, -1] = D[0, -2]
-    D[1, -1] = D[1, -2]
+    # D[0, -1] = D[0, -2]
+    # D[1, -1] = D[1, -2]
 
     return D
 
@@ -1358,23 +1362,47 @@ def _gAS_terms(dbt, df, aux, config, iTime, predictor=True):
         var_ = "p"
 
     if not config["bSourceTermBalance"]:
-        aux["gAS0"] = g * dbt["A" + var_][:, iTime] * df["S0"][:]  # * df["signS0"]
-        aux["gASf"] = g * dbt["A" + var_][:, iTime] * df["Sf"][:]  # * df["signSf"]
+        df["Sf"] = (
+            dbt["Q" + var_][:, iTime].values
+            * np.abs(dbt["Q" + var_][:, iTime].values)
+            * df["nmann1"] ** 2.0
+            / (
+                dbt["A" + var_][:, iTime].values ** 2.0
+                * dbt["Rh" + var_][:, iTime].values ** (4.0 / 3.0)
+            )
+        )
+        aux["gAS0"] = g * dbt["A" + var_][:, iTime] * df["S0"][:]
+        aux["gASf"] = g * dbt["A" + var_][:, iTime] * df["Sf"][:]
     else:
         # Source term balance
-        aux["Qmed"][:-1] = (
-            dbt["Q" + var_][1:, iTime].values + dbt["Q" + var_][:-1, iTime].values
-        ) / 2
-        aux["Amed"][:-1] = (
-            dbt["A" + var_][1:, iTime].values + dbt["A" + var_][:-1, iTime].values
-        ) / 2
-        aux["Rmed"][:-1] = (
-            dbt["Rh" + var_][1:, iTime].values + dbt["Rh" + var_][:-1, iTime].values
-        ) / 2
+        if var_ == "":
+            aux["Qmed"][:-1] = (
+                dbt["Q" + var_][1:, iTime].values + dbt["Q" + var_][:-1, iTime].values
+            ) / 2
+            aux["Amed"][:-1] = (
+                dbt["A" + var_][1:, iTime].values + dbt["A" + var_][:-1, iTime].values
+            ) / 2
+            aux["Rmed"][:-1] = (
+                dbt["Rh" + var_][1:, iTime].values + dbt["Rh" + var_][:-1, iTime].values
+            ) / 2
 
-        aux["Qmed"][-1] = dbt["Q" + var_][-1, iTime].values
-        aux["Amed"][-1] = dbt["A" + var_][-1, iTime].values
-        aux["Rmed"][-1] = dbt["Rh" + var_][-1, iTime].values
+            aux["Qmed"][-1] = dbt["Q"][-1, iTime].values
+            aux["Amed"][-1] = dbt["A"][-1, iTime].values
+            aux["Rmed"][-1] = dbt["Rh"][-1, iTime].values
+        else:
+            aux["Qmed"][1:] = (
+                dbt["Q" + var_][1:, iTime].values + dbt["Q" + var_][:-1, iTime].values
+            ) / 2
+            aux["Amed"][1:] = (
+                dbt["A" + var_][1:, iTime].values + dbt["A" + var_][:-1, iTime].values
+            ) / 2
+            aux["Rmed"][1:] = (
+                dbt["Rh" + var_][1:, iTime].values + dbt["Rh" + var_][:-1, iTime].values
+            ) / 2
+
+            aux["Qmed"][0] = dbt["Qp"][0, iTime].values
+            aux["Amed"][0] = dbt["Ap"][0, iTime].values
+            aux["Rmed"][0] = dbt["Rhp"][0, iTime].values
 
         if predictor:
             aux["gAS0"] = g * aux["Amed"] * df["zmedp"].values  # * df["signS0"]
@@ -1383,8 +1411,8 @@ def _gAS_terms(dbt, df, aux, config, iTime, predictor=True):
         aux["gASf"] = (
             g
             * df["nmann1"].values ** 2.0
-            * aux["Qmed"]
-            * np.abs(aux["Qmed"])
+            * aux["Qmed"] ** 2
+            # * np.abs(aux["Qmed"])
             / (aux["Amed"] * aux["Rmed"] ** (4.0 / 3.0))
         )  # * df["signSf"]
 
@@ -1436,7 +1464,7 @@ def _Gv_terms(dbt, aux, iTime, predictor=True):
         var_ = ""
     else:
         var_ = "p"
-    aux["Gv" + var_][0, :] = dbt["q"][:, iTime].values  # qpuntual[:]
+    aux["Gv" + var_][0, :] = dbt["q"][:, iTime].values
     aux["Gv" + var_][1, :] = (
         g * dbt["I2" + var_][:, iTime].values + aux["gAS0"] - aux["gASf"]
     )
@@ -1515,6 +1543,41 @@ def _courant_number(dbt, df, dConfig, iTime):
     return dConfig
 
 
+def _check_dt(dConfig, iTime, fTelaps):
+    """Bound the dt for ensuring convergency
+
+    Args:
+        dConfig (_type_): _description_
+        iTime ():
+        fTelaps (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    # Bound the maximum timestep to half the given timestep (for convergency)
+    if dConfig["dtmin"] > dConfig["fTimeStep"] / 2:
+        dConfig["dtmin"] = dConfig["fTimeStep"] / 2
+
+    # Check the time step for ensuring the save times
+    if fTelaps == 0:
+        dConfig["next_timestep"] = True
+    elif (
+        fTelaps + dConfig["dtmin"]
+        >= dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"]
+    ):
+        dConfig["dtmin"] = (
+            dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"] - fTelaps
+        )
+        dConfig["next_timestep"] = True
+    else:
+        dConfig["next_timestep"] = False
+
+    fTelaps += dConfig["dtmin"]
+
+    dConfig["lambda"] = dConfig["dtmin"] / dConfig["dx"]
+    return dConfig, fTelaps
+
+
 def _boundary_conditions(dbt, aux, dConfig, iTime, var_="p"):
     """_summary_
 
@@ -1529,15 +1592,12 @@ def _boundary_conditions(dbt, aux, dConfig, iTime, var_="p"):
         _type_: _description_
     """
 
-    aux["U" + var_][0, 0] = aux["U" + var_][0, 1]  # Cond. de front. A inicial
     if dConfig["iInitialBoundaryCondition"] == 1:  # Frontera inicial reflejante
         aux["U" + var_][1, 0] = dbt["q"][0, iTime]
     elif dConfig["iInitialBoundaryCondition"] == 2:  # Frontera inicial abierta
         aux["U" + var_][1, 0] = aux["U" + var_][1, 1]
 
-    aux["U" + var_][1, -1] = aux["U" + var_][1, -2]
     if dConfig["iFinalBoundaryCondition"] == 1:  # then Cond. de front. Q final
-        aux["U" + var_][0, -1] = aux["U" + var_][0, -2]  # Cond. de front. A final
         aux["U" + var_][1, -1] = aux["U" + var_][1, -2]  # Q abierto
     elif dConfig["iFinalBoundaryCondition"] == 2:  # then
         # qff, qver = 0, 0  # Condición de caudal de fijo aguas arriba

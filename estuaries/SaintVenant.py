@@ -1,10 +1,21 @@
 import datetime
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from marinetools.estuaries import utils
 from marinetools.utils import read
 
+fig, axs = plt.subplots(2, 4, sharex=True, figsize=(16, 8))
+axs = axs.flatten()
+axs[0].set_title("U")
+axs[1].set_title("Up")
+axs[2].set_title("Uc")
+axs[3].set_title("Un")
+axs[4].set_title("A")
+axs[5].set_title("F")
+axs[6].set_title("Gv")
+axs[7].set_title("D")
 """This file is part of MarineTools.
 
 MarineTools is free software: you can redistribute it and/or modify
@@ -132,7 +143,6 @@ def main(sConfigFilename, iVersion=1):
     iTime = 0  # time index
     fTelaps = 0  # time elapsed
     it = 0  # number of iteratinos
-    # for iTime in dConfig["iTime"]:
     while iTime < dConfig["iTime"][-1]:
 
         # Elapsed time - clock
@@ -156,28 +166,8 @@ def main(sConfigFilename, iVersion=1):
         # transference
         dConfig = utils._courant_number(dbt, df, dConfig, iTime)
 
-        # Bound the maximum timestep to half the given timestep (for convergency)
-        if dConfig["dtmin"] > dConfig["fTimeStep"] / 2:
-            dConfig["dtmin"] = dConfig["fTimeStep"] / 2
-
         # Check the time step for ensuring the save times
-        if fTelaps == 0:
-            dConfig["next_timestep"] = True
-        elif (
-            fTelaps + dConfig["dtmin"]
-            >= dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"]
-        ):
-            dConfig["dtmin"] = (
-                dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"]
-                - fTelaps
-            )
-            dConfig["next_timestep"] = True
-        else:
-            dConfig["next_timestep"] = False
-
-        fTelaps += dConfig["dtmin"]
-
-        dConfig["lambda"] = dConfig["dtmin"] / dConfig["dx"]
+        dConfig, fTelaps = utils._check_dt(dConfig, iTime, fTelaps)
 
         df["Sf"] = (
             dbt["Q"][:, iTime].values
@@ -188,9 +178,6 @@ def main(sConfigFilename, iVersion=1):
                 * dbt["Rh"][:, iTime].values ** (4.0 / 3.0)
             )
         )
-
-        # df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
-        # df["Sf"] = np.abs(df["Sf"])
 
         # ----------------------------------------------------------------------------------
         # Sediment transport
@@ -238,8 +225,9 @@ def main(sConfigFilename, iVersion=1):
             + dConfig["dtmin"] * aux["Gv"][1, :-1] * dbt["rho"][:-1, iTime]
         ) / dbt["rho"][:-1, iTime]
         aux["Up"][1, -1] = aux["Up"][1, -2]
+        aux["Up"][1, 0] = dbt["q"][0, iTime].values
 
-        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "p")
+        # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "p")
 
         # Update Ap and Qp
         dbt["Ap"][:, iTime] = aux["Up"][0, :]
@@ -249,8 +237,8 @@ def main(sConfigFilename, iVersion=1):
         if dConfig["bDryBed"]:
             mask_dry = utils._dry_soil(dbt, iTime, "p")
 
-        # aux["Up"][0, :] = dbt["Ap"][:, iTime]
-        # aux["Up"][1, :] = dbt["Qp"][:, iTime]
+        aux["Up"][0, :] = dbt["Ap"][:, iTime].values
+        aux["Up"][1, :] = dbt["Qp"][:, iTime].values
 
         # Compute the hydraulic parameters as function of A
         utils._hydraulic_parameters(dbt, db, iTime, False)
@@ -260,15 +248,6 @@ def main(sConfigFilename, iVersion=1):
             dbt["I1p"][vmr, iTime] = (
                 dbt["I1p"][vmr, iTime] * nmur[vmr] / df.loc[vmr, "nmann"]
             )
-
-        df["Sf"] = (
-            dbt["Qp"][:, iTime]
-            * np.abs(dbt["Qp"][:, iTime])
-            * df["nmann1"] ** 2.0
-            / (dbt["Ap"][:, iTime] ** 2.0 * dbt["Rhp"][:, iTime] ** (4.0 / 3.0))
-        )
-        # df["signSf"] = np.sign(pd.to_numeric(df["Sf"]))
-        # df["Sf"] = np.abs(df["Sf"])
 
         # -----------------------------------------------------------------------------------
         # STEP 1.1: Compute gAS terms
@@ -304,20 +283,20 @@ def main(sConfigFilename, iVersion=1):
             )
             + dConfig["dtmin"] * aux["Gvp"][0, 1:] * dbt["rhop"][1:, iTime]
         ) / dbt["rhop"][1:, iTime]
-        aux["Uc"][0, 0] = aux["Uc"][0, 1]
+        aux["Uc"][0, 0] = aux["U"][0, 0]  # dbt["Ap"][0, iTime]
 
         aux["Uc"][1, 1:] = (
-            aux["U"][1, 1:] * dbt["rhop"][1:, iTime]
+            aux["U"][1, 1:] * dbt["rhop"][1:, iTime].values
             - dConfig["lambda"]
             * (
-                aux["Fp"][1, 1:] * dbt["rhop"][1:, iTime]
-                - aux["Fp"][1, :-1] * dbt["rhop"][:-1, iTime]
+                aux["Fp"][1, 1:] * dbt["rhop"][1:, iTime].values
+                - aux["Fp"][1, :-1] * dbt["rhop"][:-1, iTime].values
             )
             + dConfig["dtmin"] * aux["Gvp"][1, 1:] * dbt["rhop"][1:, iTime]
-        ) / dbt["rhop"][1:, iTime]
-        aux["Uc"][1, 0] = aux["Uc"][1, 1]
+        ) / dbt["rhop"][1:, iTime].values
+        aux["Uc"][1, 0] = aux["U"][1, 0]  # dbt["q"][0, iTime]
 
-        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "c")
+        # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "c")
 
         # Update Ac and Qc
         dbt["Ac"][:, iTime] = aux["Uc"][0, :]
@@ -327,30 +306,60 @@ def main(sConfigFilename, iVersion=1):
         if dConfig["bDryBed"]:
             mask_dry = utils._dry_soil(dbt, iTime, "c")
 
-        # aux["Uc"][0, :] = dbt["Ac"][:, iTime]
-        # aux["Uc"][1, :] = dbt["Qc"][:, iTime]
+        # aux["Uc"][0, :] = dbt["Ac"][:, iTime].values
+        # aux["Uc"][1, :] = dbt["Qc"][:, iTime].values
         # ------------------------------------------------------------------------------
         # STEP 3: Update the following time step
         # ------------------------------------------------------------------------------
         if not dConfig["bMcComarckLimiterFlux"]:
             aux["Un"][0, :] = 0.5 * (aux["Up"][0, :] + aux["Uc"][0, :])
             aux["Un"][1, :] = 0.5 * (aux["Up"][1, :] + aux["Uc"][1, :])
+            # Added to smooth the solution
+            # aux["Un"][0, 1:] = 0.5 * (aux["Un"][0, 1:] + aux["Un"][0, :-1])
+            # aux["Un"][1, 1:] = 0.5 * (aux["Un"][1, 1:] + aux["Un"][1, :-1])
         else:
             # With flow limiter (TVD-MacCormack)
             if dConfig["bSurfaceGradientMethod"]:
                 df["elev"] = dbt["eta"][:, iTime] - df["z"]
             aux["D"] = utils._TVD_MacCormack(dbt, df, dConfig, iTime)
 
-            aux["Un"][0, :-1] = 0.5 * (aux["Up"][0, :-1] + aux["Uc"][0, :-1]) + dConfig[
+            aux["Un"][0, :] = 0.5 * (aux["Up"][0, :] + aux["Uc"][0, :]) + dConfig[
                 "lambda"
             ] * (aux["D"][0, 1:] - aux["D"][0, :-1])
-            aux["Un"][1, :-1] = 0.5 * (aux["Up"][1, :-1] + aux["Uc"][1, :-1]) + dConfig[
+            aux["Un"][1, :] = 0.5 * (aux["Up"][1, :] + aux["Uc"][1, :]) + dConfig[
                 "lambda"
             ] * (aux["D"][1, 1:] - aux["D"][1, :-1])
-            aux["Un"][0, -1] = aux["Un"][0, -2]
 
+            # aux["Un"][0, 0] = 0.5 * (aux["Up"][0, 0] + aux["Uc"][0, 0])
+            # aux["Un"][1, 0] = 0.5 * (aux["Up"][1, 0] + aux["Uc"][1, 0])
+            # aux["Un"][0, -1] = 0.5 * (aux["Up"][0, -1] + aux["Uc"][0, -1])
+            # aux["Un"][1, -1] = 0.5 * (aux["Up"][1, -1] + aux["Uc"][1, -1])
+        # aux["Un"][0, 0] = aux["Un"][0, 1]
+        # aux["Un"][1, 0] = dbt["q"][0, iTime].values
+        # aux["Un"][0, -1] = aux["Un"][0, -2]
+        # aux["Un"][1, -1] = aux["Un"][1, -2]
+
+        # Added to smooth the solution
+        aux["Un"][0, 1:] = 0.5 * (aux["Un"][0, 1:] + aux["Un"][0, :-1])
+        aux["Un"][1, 1:] = 0.5 * (aux["Un"][1, 1:] + aux["Un"][1, :-1])
         # Update boundary conditions
-        aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "n")
+        # aux = utils._boundary_conditions(dbt, aux, dConfig, iTime, "n")
+
+        axs[0].plot(aux["U"][1, :])
+        axs[1].plot(aux["Up"][1, :])
+        axs[2].plot(aux["Uc"][1, :])
+        axs[3].plot(aux["Un"][1, :])
+        axs[4].plot(dbt["A"][:, iTime])
+        axs[5].plot(
+            (
+                aux["Fp"][1, 1:] * dbt["rhop"][1:, iTime]
+                - aux["Fp"][1, :-1] * dbt["rhop"][:-1, iTime]
+            )
+            / dbt["rhop"][1:, iTime]
+        )
+        axs[6].plot(dConfig["dtmin"] * aux["Gvp"][1, 1:])
+        axs[7].plot(aux["D"][1, :])
+        plt.pause(0.01)
 
         if dConfig["bDensity"]:
             # Compute salinity gradient
@@ -363,13 +372,6 @@ def main(sConfigFilename, iVersion=1):
         aux["U"][1, :] = aux["Un"][1, :]
         aux["F"][0, :] = aux["Un"][1, :]
 
-        import matplotlib.pyplot as plt
-
-        plt.plot(aux["Up"][1, :])
-        plt.plot(aux["Uc"][1, :])
-        plt.plot(aux["Un"][1, :])
-        plt.pause(0.01)
-        # plt.show()
         # Move or not to the following savetime
         if dConfig["next_timestep"]:
             iTime += 1
