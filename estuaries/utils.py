@@ -3,6 +3,7 @@ import os
 import re
 from configparser import ConfigParser
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.special as sp
@@ -60,7 +61,9 @@ def _clock(initial, it, telaps, dConfig):
         + " - Elapsed time: "
         + "{0:9.2f}".format(telaps)
         + " - "
-        + "{0:5.2f}".format(np.round(telaps / dConfig["fFinalTime"] * 100, decimals=2))
+        + "{0:5.2f}".format(
+            np.round(telaps / dConfig["fFinalTime"] * 100, decimals=2)
+        )
         + " % completed"
     )
 
@@ -849,16 +852,16 @@ def _dry_soil(dbt, iTime, var_=""):
         _type_: _description_
     """
     Adry = dbt["B"][:, iTime] * 0.01  # 1 cm de alto por el ancho, 1e-8
-    # Qdry = 1e-5  # to ensure that U = Q/A ~ 0
+    Qdry = 1e-5  # to ensure that U = Q/A ~ 0
     # mask = np.abs(dbt["Q" + var_][:, iTime]) < Qdry
     # dbt["Q" + var_][mask, iTime] = Qdry
 
-    mask = dbt["A" + var_][:, iTime] < Adry
+    mask = dbt["A" + var_][:, iTime] <= Adry
     dbt["A" + var_][mask, iTime] = Adry[mask]
 
     # mask = ((dbt["A" + var_][:, iTime] < Adry) | (dbt["Q" + var_][:, iTime] < Qdry))
     # dbt["A" + var_][mask, iTime] = Adry
-    # dbt["Q" + var_][mask, iTime] = Qdry
+    dbt["Q" + var_][mask, iTime] = Qdry
 
     return mask
 
@@ -1555,22 +1558,40 @@ def _check_dt(dConfig, iTime, fTelaps):
         _type_: _description_
     """
     # Bound the maximum timestep to half the given timestep (for convergency)
-    if dConfig["dtmin"] > dConfig["fTimeStep"] / 2:
-        dConfig["dtmin"] = dConfig["fTimeStep"] / 2
+    # if dConfig["dtmin"] > dConfig["fTimeStep"] / 2:
+    #     dConfig["dtmin"] = dConfig["fTimeStep"] / 2
 
     # Check the time step for ensuring the save times
+    dConfig["next_timestep"] = False
     if fTelaps == 0:
         dConfig["next_timestep"] = True
+    elif iTime + 1 > dConfig["iTime"][-1]:
+        if (
+            fTelaps + dConfig["dtmin"]
+            >= dConfig["iTime"][iTime]
+            * dConfig["time_multiplier_factor"]
+            * dConfig["fTimeStep"]
+        ):
+            dConfig["dtmin"] = (
+                dConfig["iTime"][iTime]
+                * dConfig["time_multiplier_factor"]
+                * dConfig["fTimeStep"]
+                - fTelaps
+            )
+            dConfig["next_timestep"] = True
     elif (
         fTelaps + dConfig["dtmin"]
-        >= dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"]
+        >= dConfig["iTime"][iTime + 1]
+        * dConfig["time_multiplier_factor"]
+        * dConfig["fTimeStep"]
     ):
         dConfig["dtmin"] = (
-            dConfig["iTime"][iTime + 1] * dConfig["time_multiplier_factor"] - fTelaps
+            dConfig["iTime"][iTime + 1]
+            * dConfig["time_multiplier_factor"]
+            * dConfig["fTimeStep"]
+            - fTelaps
         )
-        dConfig["next_timestep"] = True
-    else:
-        dConfig["next_timestep"] = False
+        dConfig["next_timestep"] = True        
 
     fTelaps += dConfig["dtmin"]
 
@@ -1613,7 +1634,54 @@ def _boundary_conditions(dbt, aux, dConfig, iTime, var_="p"):
     return aux
 
 
-def savefiles(dbt, db, df, dConfig):
+def _init_logplots():
+    """Initialize log plots
+
+    Returns:
+        matplotlib.pyplot axes
+    """
+    fig, axs = plt.subplots(2, 4, sharex=True, figsize=(16, 8))
+    axs = axs.flatten()
+    axs[0].set_title("U")
+    axs[1].set_title("Up")
+    axs[2].set_title("Uc")
+    axs[3].set_title("Un")
+    axs[4].set_title("A")
+    axs[5].set_title("F")
+    axs[6].set_title("Gv")
+    axs[7].set_title("D")
+    return axs
+
+
+def _log_plots(dbt, aux, dConfig, iTime, axs):
+    """Plot the log figure every timestep
+
+    Args:
+        dbt (_type_): _description_
+        aux (_type_): _description_
+        dConfig (_type_): _description_
+        iTime (_type_): _description_
+        axs (_type_): _description_
+    """
+    axs[0].plot(aux["U"][1, :])
+    axs[1].plot(aux["Up"][1, :])
+    axs[2].plot(aux["Uc"][1, :])
+    axs[3].plot(aux["Un"][1, :])
+    axs[4].plot(dbt["A"][:, iTime])
+    axs[5].plot(
+        (
+            aux["Fp"][1, 1:] * dbt["rhop"][1:, iTime]
+            - aux["Fp"][1, :-1] * dbt["rhop"][:-1, iTime]
+        )
+        / dbt["rhop"][1:, iTime]
+    )
+    axs[6].plot(dConfig["dtmin"] * aux["Gvp"][1, 1:])
+    axs[7].plot(aux["D"][1, :])
+    plt.pause(0.01)
+    return
+
+
+def _savefiles(dbt, db, df, dConfig):
     """_summary_
 
     Args:
