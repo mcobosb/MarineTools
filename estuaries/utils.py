@@ -61,9 +61,7 @@ def _clock(initial, it, telaps, dConfig):
         + " - Elapsed time: "
         + "{0:9.2f}".format(telaps)
         + " - "
-        + "{0:5.2f}".format(
-            np.round(telaps / dConfig["fFinalTime"] * 100, decimals=2)
-        )
+        + "{0:5.2f}".format(np.round(telaps / dConfig["fFinalTime"] * 100, decimals=2))
         + " % completed"
     )
 
@@ -1591,7 +1589,7 @@ def _check_dt(dConfig, iTime, fTelaps):
             * dConfig["fTimeStep"]
             - fTelaps
         )
-        dConfig["next_timestep"] = True        
+        dConfig["next_timestep"] = True
 
     fTelaps += dConfig["dtmin"]
 
@@ -1599,7 +1597,7 @@ def _check_dt(dConfig, iTime, fTelaps):
     return dConfig, fTelaps
 
 
-def _boundary_conditions(dbt, aux, dConfig, iTime, var_="p"):
+def _boundary_conditions(dbt, aux, dConfig, iTime, predictor=True):
     """_summary_
 
     Args:
@@ -1613,23 +1611,44 @@ def _boundary_conditions(dbt, aux, dConfig, iTime, var_="p"):
         _type_: _description_
     """
 
-    if dConfig["iInitialBoundaryCondition"] == 1:  # Frontera inicial reflejante
-        aux["U" + var_][1, 0] = dbt["q"][0, iTime]
-    elif dConfig["iInitialBoundaryCondition"] == 2:  # Frontera inicial abierta
-        aux["U" + var_][1, 0] = aux["U" + var_][1, 1]
+    if predictor:
+        # Upward boundary condition
+        if dConfig["iInitialBoundaryCondition"] == 0:  # Open boundary condition
+            aux["Up"][1, 0] = aux["Up"][1, 1]
+        elif dConfig["iInitialBoundaryCondition"] == 1:  # Reflecting boundary condition
+            aux["Up"][1, 0] = dbt["q"][0, iTime]
 
-    if dConfig["iFinalBoundaryCondition"] == 1:  # then Cond. de front. Q final
-        aux["U" + var_][1, -1] = aux["U" + var_][1, -2]  # Q abierto
-    elif dConfig["iFinalBoundaryCondition"] == 2:  # then
-        # qff, qver = 0, 0  # Condición de caudal de fijo aguas arriba
-        aux["U" + var_][1, -1] = (
-            qff + qver
-        )  # TODO: caudal que se vierta por un vertedero aguas abajo
-        aux["U" + var_][1, -2] = qff + qver  # para que funcione mejor el esquema
-    elif dConfig["iFinalBoundaryCondition"] == 3:  # TODO: chequear esto..
-        aux["U" + var_][0, -1] = aux["total_level_seaward"]
-        aux["U" + var_][0, -2] = aux["total_level_next_seaward"]
-        # aux["U" + var_][0, -1] = aux["U" + var_][0, -2]
+        # Downward boundary condition
+        if dConfig["iFinalBoundaryCondition"] == 0:  # Open flux
+            aux["Up"][0, -1] = aux["Up"][0, -2]
+            aux["Up"][1, -1] = aux["Up"][1, -2]
+        elif dConfig["iFinalBoundaryCondition"] == 1:  # Tidal level
+            aux["Up"][0, -1] = aux["total_level_seaward"]
+            aux["Up"][0, -2] = aux["total_level_next_seaward"]
+            # aux["U" + var_][0, -1] = aux["U" + var_][0, -2]
+        elif dConfig["iFinalBoundaryCondition"] == 2:  # TODO: Discharge flux
+            aux["Up"][1, -1] = qff + qver
+            aux["Up"][1, -2] = qff + qver  # Improvement for the numerical scheme
+    else:
+        # Upward boundary condition
+        if dConfig["iInitialBoundaryCondition"] == 0:  # Open boundary condition
+            aux["Uc"][1, 0] = aux["Uc"][1, 1]
+            aux["Uc"][0, 0] = aux["Up"][0, 0]
+        elif dConfig["iInitialBoundaryCondition"] == 1:  # Reflecting boundary condition
+            aux["Uc"][1, 0] = dbt["q"][0, iTime]
+            aux["Uc"][0, 0] = aux["Up"][0, 0]
+
+        # Downward boundary condition
+        if dConfig["iFinalBoundaryCondition"] == 0:  # Open flux
+            aux["Up"][0, -1] = aux["Up"][0, -2]
+            aux["Up"][1, -1] = aux["Up"][1, -2]
+        elif dConfig["iFinalBoundaryCondition"] == 1:  # Tidal level
+            aux["Up"][0, -1] = aux["total_level_seaward"]
+            aux["Up"][0, -2] = aux["total_level_next_seaward"]
+            # aux["U" + var_][0, -1] = aux["U" + var_][0, -2]
+        elif dConfig["iFinalBoundaryCondition"] == 2:  # TODO: Discharge flux
+            aux["Up"][1, -1] = qff + qver
+            aux["Up"][1, -2] = qff + qver  # Improvement for the numerical scheme
 
     return aux
 
