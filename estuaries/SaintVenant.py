@@ -141,8 +141,6 @@ def main(sConfigFilename, iVersion=1):
     utils._clock(initial, it, fTelaps, dConfig)
 
     while iTime < dConfig["iTime"][-1]:
-        # Computing the water level due to tides at the seaward boundary
-        aux = utils._tidal_level(db, aux, df, dConfig, iTime)
 
         # Compute the hydraulic parameters as function of A
         utils._hydraulic_parameters(dbt, db, iTime)
@@ -161,6 +159,9 @@ def main(sConfigFilename, iVersion=1):
 
         # Check the time step for ensuring the save times
         dConfig, fTelaps = utils._check_dt(dConfig, iTime, fTelaps)
+
+        # Computing the water level due to tides at the seaward boundary
+        aux = utils._tidal_level(db, aux, df, dConfig, fTelaps)
 
         df["Sf"] = (
             dbt["Q"][:, iTime].values
