@@ -1063,7 +1063,7 @@ def _density(dbt, dConfig, sedProp, iTime, predictor=True):
     return
 
 
-def _salinity(dbt, dConfig, iTime, var_="p"):
+def _salinity(dbt, aux, dConfig, iTime):
     """_summary_
 
     Args:
@@ -1075,25 +1075,29 @@ def _salinity(dbt, dConfig, iTime, var_="p"):
     Returns:
         _type_: _description_
     """
+    # Dry bed algorithm
+    if dConfig["bDryBed"]:
+        mask_dry = _dry_soil(dbt, iTime)
+        aux["ast"][mask_dry] = 0
+    # ----------------------------------------------------------------------
 
-    asdif = (
-        dbt["A" + var_][2:, iTime].values * dbt["S"][2:, iTime].values
-        + dbt["A" + var_][:-2, iTime].values * dbt["S"][:-2, iTime].values
-    ) / 2
-    asdif = np.hstack([asdif[0], asdif])
-    asdif = np.hstack([asdif[0], asdif])
+    if dConfig["iFinalBoundaryCondition"] == 1:
+        # Seawardside is the ocean
+        aux["ast"][-1] = 0
 
-    dbt["S"][:, iTime] = asdif / dbt["A" + var_][:, iTime].values
+    dbt["S"][:, iTime] = aux["ast"] / dbt["A"][:, iTime].values + aux["salinity"]
+    aux["salinity"] = dbt["S"][:, iTime].values
+
+    # Bound the minimum and maximum values of salinity to 0 a 35 psu,
     mask = dbt["S"][:, iTime] < 0
     dbt["S"][mask, iTime] = 0
 
     mask = dbt["S"][:, iTime] > 35
     dbt["S"][mask, iTime] = 35
-    dbt["S"][-1, iTime] = 20
-    return dbt
+    return aux
 
 
-def _salinity_gradient(dbt, dConfig, iTime):
+def _salinity_gradient(dbt, aux, dConfig, iTime):
     """_summary_
 
     Args:
@@ -1147,14 +1151,14 @@ def _salinity_gradient(dbt, dConfig, iTime):
         ]
     )
 
-    ast = (
+    aux["ast"] = (
         dConfig["fKH"]
         * dConfig["lambda"] ** 2
         / dConfig["dtmin"]
         * (kasdif_forward - kasdif_backward)
         - ausdif
     )
-    return ast
+    return aux
 
 
 def _vanRijn(sedProp, dbt, df, iTime):
@@ -1625,7 +1629,6 @@ def _boundary_conditions(dbt, aux, dConfig, iTime, predictor=True):
         elif dConfig["iFinalBoundaryCondition"] == 1:  # Tidal level
             aux["Up"][0, -1] = aux["tidal_area_seaward"]
             aux["Up"][0, -2] = aux["tidal_area_next_seaward"]
-            # aux["Up"][1, -1] = aux["U"][1, -1]  # TODO: chequeando
         elif dConfig["iFinalBoundaryCondition"] == 2:  # TODO: Discharge flux
             aux["Up"][1, -1] = qff + qver
             aux["Up"][1, -2] = qff + qver  # Improvement for the numerical scheme
@@ -1645,7 +1648,7 @@ def _boundary_conditions(dbt, aux, dConfig, iTime, predictor=True):
         elif dConfig["iFinalBoundaryCondition"] == 1:  # Tidal level
             aux["Uc"][0, -1] = aux["tidal_area_seaward"]
             aux["Uc"][0, -2] = aux["tidal_area_next_seaward"]
-            aux["Uc"][1, -1] = aux["Up"][1, -1]  # TODO: chequeando
+            aux["Uc"][1, -1] = aux["Up"][1, -1]
         elif dConfig["iFinalBoundaryCondition"] == 2:  # TODO: Discharge flux
             aux["Uc"][1, -1] = qff + qver
             aux["Uc"][1, -2] = qff + qver  # Improvement for the numerical scheme
