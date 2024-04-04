@@ -345,7 +345,9 @@ def main(sConfigFilename, iVersion=1):
 
             if dConfig["bDensity"]:
                 aux = utils._salinity(dbt, aux, dConfig, iTime)
-                # utils._density(dbt, dConfig, sedProp, iTime) # TODO: chequeando si calcula correctamente
+                utils._density(
+                    dbt, dConfig, sedProp, iTime
+                )
 
         # Elapsed time - clock
         utils._clock(initial, it, fTelaps, dConfig)
