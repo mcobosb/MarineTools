@@ -1081,9 +1081,15 @@ def _salinity(dbt, aux, dConfig, iTime):
         aux["ast"][mask_dry] = 0
     # ----------------------------------------------------------------------
 
-    if dConfig["iFinalBoundaryCondition"] == 1:
-        # Seawardside is the ocean
-        aux["ast"][-1] = 0
+    if not "iInitialSalinityCondition" in dConfig.keys():
+        raise ValueError("Initial salinity conditions in psu is required.")
+    else:
+        aux["ast"][0] = dConfig["iInitialSalinityCondition"]
+
+    if not "iFinalSalinityCondition" in dConfig.keys():
+        raise ValueError("Final salinity conditions in psu is required.")
+    else:
+        aux["ast"][-1] = dConfig["iFinalSalinityCondition"]
 
     dbt["S"][:, iTime] = aux["ast"] / dbt["A"][:, iTime].values + aux["salinity"]
     aux["salinity"] = dbt["S"][:, iTime].values
