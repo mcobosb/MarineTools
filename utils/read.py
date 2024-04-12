@@ -343,9 +343,9 @@ def netcdf(
                 data = data.loc[0]
                 data.index = pd.to_datetime(data.index)
             except:
-                print("Data has not bounds.")
+                pass
 
-            nearestLonLat = data.longitude.values[0], data.latitude.values[0]
+            nearestLatLon = data.latitude.values[0], data.longitude.values[0]
         else:
             data = data.sel(
                 depth=0.494025,
@@ -353,12 +353,13 @@ def netcdf(
                 latitude=latlon[1],
                 method="nearest",
             ).to_dataframe()
-        print("Nearest lon-lat point: ", nearestLonLat)
+        print("Nearest lat-lon point: ", nearestLatLon)
         if variables is not None:
             if len(variables) == 1:
                 data = data[[variables]]
             else:
                 data = data[variables]
+            data = (data, nearestLatLon)
         # data.index = data.to_datetimeindex(unsafe=False)
     else:
         # TODO: hacer el nearest en otra funcion
@@ -619,19 +620,22 @@ def shp(fname: str, joint: bool = False, var_: str = None):
                     xy.append(np.asarray(linestring_.coords.xy).T)
 
             elif type_ == "MultiPolygon":
-                for k_, polygon_ in enumerate(shape_file["geometry"][k]):
-                    if not polygon_ == None:
-                        if polygon_ == "Polygon":
-                            xy.append(np.asarray(polygon_.exterior.coords.xy).T)
-                        elif polygon_.geom_type == "linearRing":
-                            xy.append(
-                                np.asarray(
-                                    shape_file.apply(
-                                        lambda x: [y for y in polygon_.coords],
-                                        axis=1,
-                                    )[k_]
+                try:
+                    for k_, polygon_ in enumerate(shape_file["geometry"][k]):
+                        if not polygon_ == None:
+                            if polygon_ == "Polygon":
+                                xy.append(np.asarray(polygon_.exterior.coords.xy).T)
+                            elif polygon_.geom_type == "linearRing":
+                                xy.append(
+                                    np.asarray(
+                                        shape_file.apply(
+                                            lambda x: [y for y in polygon_.coords],
+                                            axis=1,
+                                        )[k_]
+                                    )
                                 )
-                            )
+                except:
+                    pass
             else:
                 raise ValueError(
                     "Shapefile can not be readed with methods coords or exterior.coords or exterior.coords.xy"
