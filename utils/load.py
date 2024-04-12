@@ -22,6 +22,50 @@ def create_mesh_dictionary(fname, uf=None):
     return params
 
 
+def cshore_config():
+    props = {}
+    props["iline"] = 1  # 1 = single line
+    props["iprofl"] = (
+        0  # 0 = no morph, 1 = run morph, 1.1 = run morph without initial smoothing
+    )
+    props["isedav"] = 0  # 0 = unlimited sand, 1 = hard bottom
+    props["iperm"] = 0  # 0 = no permeability, 1 = permeable
+    props["iover"] = 1  # 0 = no overtopping , 1 = include overtopping
+    props["infilt"] = 0  # 1 = include infiltration landward of dune crest
+    props["iwtran"] = (
+        0  # 0 = no standing water landward of crest, 1 = wave transmission due to overtopping
+    )
+    props["ipond"] = 0  # 0 = no ponding seaward of SWL
+    props["iwcint"] = 1  # 0 = no W & C interaction , 1 = include W & C interaction
+    props["iroll"] = 1  # 0 = no roller, 1 = roller
+    props["iwind"] = 0  # 0 = no wind effect
+    props["itide"] = 0  # 0 = no tidal effect on currents
+    props["iclay"] = 0  #
+    props["iveg"] = 0  # vegitation effect
+    props["veg_Cd"] = 1  # vegitation drag coeff
+    props["veg_n"] = 100  # vegitation density
+    props["veg_dia"] = 0.01  # vegitation diam
+    props["veg_ht"] = 0.20  # vegitation height
+    props["veg_rod"] = 0.1  # vegitation erosion limit below sand for failure
+    props["veg_extent"] = [
+        0.7,
+        1,
+    ]  # vegitation coverage as fraction of total domain length
+    props["gamma"] = 0.8  # shallow water ratio of wave height to water depth
+    props["sporo"] = 0.4  # sediment porosity
+    props["sg"] = 2.65  # specific gravity
+    props["effb"] = 0.005  # suspension efficiency due to breaking eB
+    props["efff"] = 0.01  # suspension efficiency due to friction ef
+    props["slp"] = 0.5  # susp ed load parameter
+    props["slpot"] = 0.1  # overtopping susp ed load parameter
+    props["tanphi"] = 0.630  # tangent (sediment friction angle)
+    props["blp"] = 0.001  # bedload parameter
+    props["rwh"] = 0.02  # numerical rununp wire height
+    props["ilab"] = 1  # controls the boundary condition timing. Don't change
+    props["fric_fac"] = 0.015  # bottom friction factor
+    return props
+
+
 def rcshore(file_, path):
     """[summary]
 
