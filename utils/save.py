@@ -62,7 +62,7 @@ def to_json(params: dict, file_name: str, npArraySerialization: bool = False):
 
 
 def to_csv(data: pd.DataFrame, file_name: str, compression: str = "infer"):
-    """Saves to a csv file
+    """Saves to a kind of csv file
 
     Args:
         - data (pd.DataFrame): data to be saved
@@ -72,11 +72,6 @@ def to_csv(data: pd.DataFrame, file_name: str, compression: str = "infer"):
     Return:
         - None
     """
-    if not ".csv" in file_name:
-        file_name = str(file_name) + ".csv"
-    else:
-        file_name = str(file_name)
-
     if ".zip" in file_name:
         data.to_csv(file_name, compression="zip")
     else:
