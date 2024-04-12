@@ -386,33 +386,36 @@ def select_data(data, corners):
     return data
 
 
-def interp(data, corners, dist=100, method="linear", fill_values=np.nan):
+def interp(base, data, dist=100, method="linear", fill_values=np.nan):
     """[summary]
 
     Args:
-        data ([type]): [description]
-        corners ([type]): [description]
+        base ([type]): Base map for interpolating
+        data ([type]): Points where interpolate
         dist (int, optional): [description]. Defaults to 100.
         method (str, optional): [description]. Defaults to 'linear'.
 
     Returns:
         [type]: [description]
     """
-    if isinstance(corners, pd.DataFrame):
+    if isinstance(data, pd.DataFrame):
         nx, ny = (
-            int((corners.x[1] - corners.x[0]) / dist),
-            int((corners.y[1] - corners.y[0]) / dist),
+            int((data.x[1] - data.x[0]) / dist),
+            int((data.y[1] - data.y[0]) / dist),
         )
         x, y = np.meshgrid(
-            np.linspace(corners.x[0] + dist / 2, corners.x[1] - dist / 2, nx),
-            np.linspace(corners.y[0] + dist / 2, corners.y[1] - dist / 2, ny),
+            np.linspace(data.x[0] + dist / 2, cordataners.x[1] - dist / 2, nx),
+            np.linspace(data.y[0] + dist / 2, data.y[1] - dist / 2, ny),
         )
     else:
-        x, y = corners["x"], corners["y"]
-        nx, ny = np.shape(x)
+        x, y = data["x"], data["y"]
+        if len(np.shape(x)) == 1:
+            nx, ny = len(x), 1
+        else:
+            nx, ny = np.shape(x)
     z = griddata(
-        data.loc[:, ["x", "y"]].values,
-        data.loc[:, "z"].values,
+        base.loc[:, ["x", "y"]].values,
+        base.loc[:, "z"].values,
         (x, y),
         method=method,
         fill_value=fill_values,
@@ -518,7 +521,7 @@ def rotate_coords(x, y, angle):
         y ([type]): [description]
         angle ([type]): [description]
     """
-    d = np.sqrt(x ** 2 + y ** 2)
+    d = np.sqrt(x**2 + y**2)
     angles = np.arctan2(y, x)
     dx, dy = d * np.cos(angles), d * np.sin(angles)
     x = dx * np.cos(np.deg2rad(angle)) - dy * np.sin(np.deg2rad(angle))
