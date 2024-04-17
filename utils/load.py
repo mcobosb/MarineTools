@@ -23,10 +23,12 @@ def create_mesh_dictionary(fname, uf=None):
 
 
 def cshore_config():
+
+    # Common configuration file
     props = {}
     props["iline"] = 1  # 1 = single line
     props["iprofl"] = (
-        0  # 0 = no morph, 1 = run morph, 1.1 = run morph without initial smoothing
+        1  # 0 = no morph, 1 = run morph, 1.1 = run morph without initial smoothing
     )
     props["isedav"] = 0  # 0 = unlimited sand, 1 = hard bottom
     props["iperm"] = 0  # 0 = no permeability, 1 = permeable
@@ -63,6 +65,17 @@ def cshore_config():
     props["rwh"] = 0.02  # numerical rununp wire height
     props["ilab"] = 1  # controls the boundary condition timing. Don't change
     props["fric_fac"] = 0.015  # bottom friction factor
+
+    # boundary conditions and timing
+    props["timebc_wave"] = 3600
+
+    props["timebc_surg"] = props["timebc_wave"]
+    props["nwave"] = 1  # len(props['timebc_wave'])
+    props["nsurg"] = props["nwave"]
+
+    props["Wsetup"] = 0  # wave setup at seaward boundary in meters
+    props["swlbc"] = 0.0  # water level at seaward boundary in meters
+
     return props
 
 
