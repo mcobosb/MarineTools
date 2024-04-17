@@ -1768,6 +1768,7 @@ def wrose(
     fig_title: str = None,
     var_name: str = "Wave height (m)",
     bins: list = [0, 0.25, 0.5, 1.5, 2.5],
+    calm_limit= 0,
     file_name: str = None,
 ):
     """Draws a wind or wave rose
@@ -1798,6 +1799,7 @@ def wrose(
         normed=True,
         cmap=plt.cm.viridis,
         opening=1,
+        calm_limit=calm_limit,
         bins=bins,
     )
     fig.subplots_adjust(top=0.8)
