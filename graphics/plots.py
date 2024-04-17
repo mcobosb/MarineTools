@@ -921,13 +921,13 @@ def nonstationary_cdf(
     log: bool = False,
     file_name: str = None,
     label: str = None,
-    lst="-", 
+    lst="-",
     legend: bool = True,
     legend_loc: str = "right",
     title: str = None,
     date_axis: bool = False,
     pemp: list = None,
-    emp: bool = True
+    emp: bool = True,
 ):
     """Plots the time variation of given percentiles of data and theoretical function if provided
 
@@ -947,7 +947,7 @@ def nonstationary_cdf(
         * title: draw the title
         * date_axis: create a secondary axis with time
         * pemp: list with percentiles to be plotted
-        * emp (bool, optional): if True plot the empirical nonst distribution 
+        * emp (bool, optional): if True plot the empirical nonst distribution
 
     Returns:
         * ax (matplotlib.axis): axis for the plot or None
@@ -1768,7 +1768,7 @@ def wrose(
     fig_title: str = None,
     var_name: str = "Wave height (m)",
     bins: list = [0, 0.25, 0.5, 1.5, 2.5],
-    calm_limit= 0,
+    calm_limit=0,
     file_name: str = None,
 ):
     """Draws a wind or wave rose
@@ -1840,7 +1840,7 @@ def seasonalbox(data, variable, fname=None):
     _, ax = plt.subplots()
     box, median = [], []
     box = [data.loc[data.index.month == i].values[:, 0] for i in range(1, 13)]
-    median = [data.loc[data.index.month == i].median() for i in range(1, 13)]
+    median = data.groupby(data.index.month).median()
 
     bp = plt.boxplot(
         box,
