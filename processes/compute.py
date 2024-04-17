@@ -136,14 +136,11 @@ def slopes(data, var_="DirU"):
         (data["x"] + np.cos(data[var_] * np.pi / 180)).reshape(-1),
         (data["y"] + np.sin(data[var_] * np.pi / 180)).reshape(-1),
     )
-    Sb = (
-        griddata(
-            (data["x"].reshape(-1), data["y"].reshape(-1)),
-            data["depth"].reshape(-1),
-            (xi, yi),
-        )
-        - data["depth"].reshape(-1)
-    )
+    Sb = griddata(
+        (data["x"].reshape(-1), data["y"].reshape(-1)),
+        data["depth"].reshape(-1),
+        (xi, yi),
+    ) - data["depth"].reshape(-1)
     Sb = Sb.reshape(np.shape(data["x"]))
     Sb[np.isnan(Sb)] = 0
     return Sb
@@ -289,9 +286,9 @@ def sediment_transport_CERC(data, params, theta_c):
             axis=0,
         )
     )
-    data.loc[
-        data["alphar"] > np.pi / 2, "alphar"
-    ] = 0  # el valor absolutio del ángulo entre la normal y el tren de olas no puede ser superior a 90
+    data.loc[data["alphar"] > np.pi / 2, "alphar"] = (
+        0  # el valor absolutio del ángulo entre la normal y el tren de olas no puede ser superior a 90
+    )
 
     G = 9.8091
     K = 1.4 * np.exp(-2.5 * params["d50"])
@@ -384,6 +381,25 @@ def copla(current_working_directory):
         )
 
     subprocess.run(copla_path, cwd=current_working_directory)
+    return
+
+
+def cshore(current_working_directory):
+    """[summary]
+
+    Args:
+        current_working_directory ([type]): [description]
+    """
+
+    if not "win" in sys.platform:
+        cshore_path = "/share/apps/cshore/cshore)"
+    else:
+        cshore_path = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), "src", "cshore_win.exe"
+        )
+
+    subprocess.run(cshore_path, cwd=current_working_directory)
+
     return
 
 
@@ -1056,7 +1072,7 @@ def water_elevation(type_="rectangular"):
                 Q
                 - 1
                 / n
-                * ((2 * var_["T"] ** 2 * h) / (3 * var_["T"] ** 2 + 8 * h ** 2))
+                * ((2 * var_["T"] ** 2 * h) / (3 * var_["T"] ** 2 + 8 * h**2))
                 ** (2 / 3)
                 * var_["S"] ** 0.5
             )
@@ -1072,9 +1088,9 @@ def settling_velocity(ds, info, type_="Rubey"):
     g = 9.81
 
     if type_ == "Rubey":
-        F = (2 / 3 + 36 * info["nu"] ** 2 / (g * (info["sg"] - 1) * ds ** 3)) ** (
+        F = (2 / 3 + 36 * info["nu"] ** 2 / (g * (info["sg"] - 1) * ds**3)) ** (
             1 / 2
-        ) - (36 * info["nu"] ** 2 / (g * (info["sg"] - 1) * ds ** 3)) ** (1 / 2)
+        ) - (36 * info["nu"] ** 2 / (g * (info["sg"] - 1) * ds**3)) ** (1 / 2)
         w_s = F * (g * (info["sg"] - 1) * ds) ** (0.5)
     elif type_ == "Wu_Wang":
         M = 53.5 * np.exp(-0.65 * info["Sp"])
@@ -1084,8 +1100,7 @@ def settling_velocity(ds, info, type_="Rubey"):
             M
             * info["nu"]
             / (N * d)
-            * (np.sqrt(0.25 + (4 * N / (3 * M ** 2) * d_ast ** 3) ** (1 / n)) - 0.5)
-            ** n
+            * (np.sqrt(0.25 + (4 * N / (3 * M**2) * d_ast**3) ** (1 / n)) - 0.5) ** n
         )
 
     else:
@@ -1285,7 +1300,7 @@ def river_sediment_transport(df, info, type_="meyer-peter-muller"):
             logger.info("Browlie's tau adimensional parameter.")
             dens_apa = 1600
             Y_bw = (
-                g ** 0.5
+                g**0.5
                 * (dens_apa / info["rho_w"]) ** 0.5
                 * info["d50"] ** (3 / 2)
                 / info["nu"]
@@ -1299,7 +1314,7 @@ def river_sediment_transport(df, info, type_="meyer-peter-muller"):
         Uc = (
             ((info["sg"] - 1) * g * info["d50"]) ** 0.5
             * 4.596
-            * tau_adim_c ** 0.529
+            * tau_adim_c**0.529
             * info["S"] ** (-0.1405)
             * np.std(info["ds_substrate"]) ** (-0.1606)
         )
