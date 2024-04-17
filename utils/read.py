@@ -413,6 +413,7 @@ def asci_tiff(fname, type_="row"):
 
     data = rasterio.open(fname)
     z = data.read()[0, :, :]
+    profile = data.profile
 
     # All rows and columns
     cols, rows = np.meshgrid(np.arange(z.shape[1]), np.arange(z.shape[0]))
@@ -437,7 +438,7 @@ def asci_tiff(fname, type_="row"):
         dout = {"x": x, "y": y, "z": z}
         # dout["z"][z == data._nodatavals[0]] = np.nan
 
-    return dout
+    return dout, profile
 
 
 def kmz(fname, joint=False):
