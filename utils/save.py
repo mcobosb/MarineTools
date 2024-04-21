@@ -105,7 +105,7 @@ def to_xlsx(data: pd.DataFrame, file_name: str):
         - None
     """
 
-    wbook, wsheet = cwriter(str(file_name) + ".xlsx")
+    wbook, wsheet = cwriter(str(file_name))
 
     # Writting the header
     if data.index.name is not None:
