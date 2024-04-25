@@ -79,7 +79,7 @@ def cshore_config():
     return props
 
 
-def rcshore(file_, path):
+def rcshore(file_, path, skiprows=1):
     """[summary]
 
     Args:
@@ -118,8 +118,8 @@ def rcshore(file_, path):
         id_ = int(properties.split()[1])
         df = pd.read_csv(
             filename,
-            delim_whitespace=True,
-            skiprows=1,
+            sep="\s+",
+            skiprows=skiprows,
             index_col=0,
             names=header[file_],
         )
@@ -127,8 +127,8 @@ def rcshore(file_, path):
     else:
         df = pd.read_csv(
             filename,
-            delim_whitespace=True,
-            skiprows=1,
+            sep="\s+",
+            skiprows=skiprows,
             index_col=0,
             names=header[file_],
         )
