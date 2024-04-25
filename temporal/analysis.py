@@ -709,6 +709,53 @@ def check_marginal_params(param: dict):
     return param
 
 
+def init_fourier_coefs():
+    """Compute an estimation of the initial parameters for trigonometric expansions
+    
+    """
+    timestep = 1 / 365.25
+    wlen = 14 / 365.25  # 14-days window
+    res = pd.DataFrame(
+                0, index=np.arange(0, 1, timestep), columns=["s", "loc", "scale"]
+            )
+    for ii, i in enumerate(res.index):
+        if i >= (1 - wlen):
+            final_offset = i + wlen - 1
+            mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
+                data["n"] <= final_offset
+            )
+        elif i <= wlen:
+            initial_offset = i - wlen
+            mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
+                data["n"] >= 1 + initial_offset
+            )
+        else:
+            mask = (data["n"] >= i - wlen) & (data["n"] <= i + wlen)
+    
+        model = st.gamma
+        result = st.fit(
+            model,
+            data[station].loc[mask],
+            bounds=[(0, 5), bound, (0, 100)],
+        )
+        res.loc[i, :] = result.params.a, result.params.loc, result.params.scale
+    
+    coefs = np.fft.fft(res.loc[:, paramName] - np.mean(res.loc[:, paramName]))
+
+    N = len(res.loc[:, paramName])
+    # Choose one side of the spectra
+    cn = np.ravel(coefs[0 : N // 2] / N)
+
+    an, bn = 2 * np.real(cn), -2 * np.imag(cn)
+
+    an = an[: index + 1]
+    bn = bn[: index + 1]
+
+    parameters = np.mean(res.loc[:, paramName])
+    for order_k in range(index):
+        parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
+    return 
+
 def nanoise(
     data: pd.DataFrame, variable: str, remove: bool = False, filter_: str = None
 ):
