@@ -70,6 +70,10 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                 - 'make': True or False
                 - 'method': box-cox or yeo-jonhson
                 - 'plot': True or False
+            - 'detrend': stand for removing trends of time series through the statistical parameters
+                - 'make': True or False
+                - 'method': a string with an option of the GFS (commonly polynomials
+                    approaches)
             - 'optimization': a dictionary with some initial parameters for the optimization
             method (see scipy.optimize.minimize), some options are:
                 - 'method': "SLSQP",
@@ -82,8 +86,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
             - scale: a boolean for scaling the initial data (True) or not (False),
             - 'weighted': a boolean for weighted data along the time axis. A low number
             of values at some times might give incongruent results.
-            - 'mode': a list with the mode to be computed independently,
-            - 'par': initial guess of the parameters for the mode given
+            - 'initial_parameters': when initial parameters of a unique optimization
+            mode are given
+                - 'make': True or False
+                - 'mode': a list with the mode to be computed independently,
+                - 'par': initial guess of the parameters for the mode given
             - 'folder_name': string where the folder where the analysis will be saved
             (optional)
             - 'file_name': string where it will be saved the analysis (optional)
@@ -98,12 +105,16 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                             "no_terms": int,
                             "periods": [1, 2, 4, ...]}
                         'ws_ps': 1 or a list,
-                        'transform': None or a list with:
+                        'transform': None or a dictionary with:
                             {"make": True,
                             "plot": False,
-                            "method": "box-cox"}, or "yeo-johnson}
-                        'mode': [6] or [2,2] ...
-                        'par': a list with initial parameters if mode is given
+                            "method": "box-cox" or "yeo-johnson"},
+                        'detrend': None or a dictionary with:
+                            {"make": True,
+                            "method": "chebyschev", "legendre", "polynomial", ...},
+                        'initial_parameters': None or a list with:
+                            {'mode': [6] or [2,2],
+                            'par': a list with initial parameters if mode is given},
                         'optimization': {'method': 'SLSQP' (default), 'dual_annealing',
                             'differential_evolution' or 'shgo',
                             'eps', 'ftol', 'maxiter', 'bounds'},
@@ -325,6 +336,7 @@ def check_marginal_params(param: dict):
     logger.info("USER OPTIONS:")
     k = 1
 
+    # Checking the transform parameters if any
     if not "transform" in param.keys():
         param["transform"] = {}
         param["transform"]["make"] = False
@@ -342,6 +354,36 @@ def check_marginal_params(param: dict):
                     str(k)
                     + " - Data is previously normalized ("
                     + param["transform"]["method"]
+                    + " method given)".format(str(k))
+                )
+                k += 1
+
+    # Checking the detrend parameters if any
+    if not "detrend" in param.keys():
+        param["detrend"] = {}
+        param["transform"]["make"] = False
+    else:
+        if param["detrend"]["make"]:
+            if not param["detrend"]["method"] in [
+                "chebyshev",
+                "legendre",
+                "laguerre",
+                "hermite",
+                "ehermite",
+                "polynomial",
+            ]:
+                raise ValueError(
+                    "Methods available are:\
+                    chebyshev, legendre, laguerre, hermite, ehermite or polynomial.\
+                    Given {}.".format(
+                        param["detrend"]["method"]
+                    )
+                )
+            else:
+                logger.info(
+                    str(k)
+                    + " - Detrend timeseries is appliedData is previously normalized ("
+                    + param["detrend"]["method"]
                     + " method given)".format(str(k))
                 )
                 k += 1
@@ -487,16 +529,33 @@ def check_marginal_params(param: dict):
         )
         k += 1
 
-    if not "par" in param.keys():
-        param["par"], param["mode"] = {}, {}
+    # Check if initial parameters are given
+    if not "initial_parameters" in param.keys():
+        param["initial_parameters"] = {}
+        param["initial_parameters"]["par"], param["initial_parameters"]["mode"] = {}, {}
     else:
-        if not "mode" in param.keys():
+        if not "par" in param["initial_parameters"].keys():
             raise ValueError(
-                "The evaluation of a mode required the initial parameters 'par'. Give the par."
+                "The evaluation of a certain mode required the initial parameters 'par'. Give the par."
             )
         else:
             logger.info(
-                str(k) + " - Mode of optimization given ({}).".format(param["mode"])
+                str(k)
+                + " - Parameters of optimization given ({}).".format(
+                    param["initial_parameters"]["par"]
+                )
+            )
+            k += 1
+        if not "mode" in param["initial_parameters"].keys():
+            raise ValueError(
+                "The evaluation of a mode required the initial mode 'mode'. Give the mode."
+            )
+        else:
+            logger.info(
+                str(k)
+                + " - Mode of optimization given ({}).".format(
+                    param["initial_parameters"]["mode"]
+                )
             )
             k += 1
 
@@ -710,14 +769,12 @@ def check_marginal_params(param: dict):
 
 
 def init_fourier_coefs():
-    """Compute an estimation of the initial parameters for trigonometric expansions
-    
-    """
+    """Compute an estimation of the initial parameters for trigonometric expansions"""
     timestep = 1 / 365.25
     wlen = 14 / 365.25  # 14-days window
     res = pd.DataFrame(
-                0, index=np.arange(0, 1, timestep), columns=["s", "loc", "scale"]
-            )
+        0, index=np.arange(0, 1, timestep), columns=["s", "loc", "scale"]
+    )
     for ii, i in enumerate(res.index):
         if i >= (1 - wlen):
             final_offset = i + wlen - 1
@@ -731,7 +788,7 @@ def init_fourier_coefs():
             )
         else:
             mask = (data["n"] >= i - wlen) & (data["n"] <= i + wlen)
-    
+
         model = st.gamma
         result = st.fit(
             model,
@@ -739,7 +796,7 @@ def init_fourier_coefs():
             bounds=[(0, 5), bound, (0, 100)],
         )
         res.loc[i, :] = result.params.a, result.params.loc, result.params.scale
-    
+
     coefs = np.fft.fft(res.loc[:, paramName] - np.mean(res.loc[:, paramName]))
 
     N = len(res.loc[:, paramName])
@@ -754,7 +811,8 @@ def init_fourier_coefs():
     parameters = np.mean(res.loc[:, paramName])
     for order_k in range(index):
         parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
-    return 
+    return
+
 
 def nanoise(
     data: pd.DataFrame, variable: str, remove: bool = False, filter_: str = None
@@ -1663,7 +1721,7 @@ def generate_outputfilename(parameters):
     Args:
         parameters (_type_): _description_
     """
-    
+
     filename = parameters["var"] + "_" + str(parameters["fun"][0])
     for i in range(1, parameters["no_fun"]):
         filename += "_" + str(parameters["fun"][i])
