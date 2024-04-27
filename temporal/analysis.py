@@ -81,11 +81,10 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                 - 'ftol': 1e-4
                 - 'eps': 1e-7
                 - 'bounds': 0.5
+                - 'weighted': a boolean for weighted data along the time axis. A low number
+            of values at some times might give incongruent results.
             - giter: number of global iterations. Repeat the minimization algorithm
             changing the initial guess
-            - scale: a boolean for scaling the initial data (True) or not (False),
-            - 'weighted': a boolean for weighted data along the time axis. A low number
-            of values at some times might give incongruent results.
             - 'initial_parameters': when initial parameters of a unique optimization
             mode are given
                 - 'make': True or False
@@ -190,8 +189,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         / (parameters["basis_period"][0] * 365.25 * 24 * 3600),
         1,
     )
+    # Create and additional time line for detrending
+    if parameters["detrend"]["make"]:
+        df["n_detrend"] = (df.index - df.index[0]) / (df.index[-1] - df.index[0])
 
-    # Compute the tempora weights if it is required
+    # Compute the temporaL weights if it is required
     if parameters["weighted"]["make"]:
         if parameters["weighted"]["window"] == "month":
             counts = df.groupby("n").count()  # TODO: con pesos promedio mensuales.
@@ -207,9 +209,9 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     else:
         parameters["weighted"]["values"] = 1
 
-    # Make the full analysis if "mode" is not given or a specify mode wheter "mode" is given
-    if not parameters["mode"]:
-        logger.info("MARGINAL STATISTICAL FIT")
+    if not parameters["non_stat_analysis"]:
+        # Make the stationary analysis
+        logger.info("MARGINAL STATIONARY FIT")
         logger.info(
             "=============================================================================="
         )
@@ -229,31 +231,36 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
 
         # Write the information about the variable, PMs and method
-        if parameters["non_stat_analysis"] == True:
-            term = (
-                "\nNon-stationary fit of "
-                + parameters["var"]
-                + " with the "
-                + str(parameters["fun"][0].name)
-            )
-            for i in range(1, parameters["no_fun"]):
-                term += " - " + str(parameters["fun"][i].name)
-            term += " - genpareto " * parameters["reduction"]
-            term += " probability model"
-            logger.info(term)
-            logger.info(
-                "with the "
-                + parameters["optimization"]["method"]
-                + " optimization method."
-            )
-            logger.info(
-                "=============================================================================="
-            )
-            # Make the non-stationary analysis
-            parameters = stf.nonst_analysis(df, parameters)
+    elif parameters["non_stat_analysis"] & (
+        not parameters["initial_parameters"]["make"]
+    ):
+        # Make the non-stationary analysis
+        logger.info("MARGINAL NON-STATIONARY FIT")
+        logger.info(
+            "=============================================================================="
+        )
+        term = (
+            "\nNon-stationary fit of "
+            + parameters["var"]
+            + " with the "
+            + str(parameters["fun"][0].name)
+        )
+        for i in range(1, parameters["no_fun"]):
+            term += " - " + str(parameters["fun"][i].name)
+        term += " - genpareto " * parameters["reduction"]
+        term += " probability model"
+        logger.info(term)
+        logger.info(
+            "with the " + parameters["optimization"]["method"] + " optimization method."
+        )
+        logger.info(
+            "=============================================================================="
+        )
+        # Make the non-stationary analysis
+        parameters = stf.nonst_analysis(df, parameters)
 
     else:
-        # Write the information about the variable, PMs, method and mode
+        # Make the non-stationary analysis of a given mode
         term = (
             "Non-stationary fit of "
             + parameters["var"]
@@ -263,7 +270,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         for i in range(1, parameters["no_fun"]):
             term += "-" + str(parameters["fun"][i].name)
         term += " and mode:"
-        for mode in parameters["mode"]:
+        for mode in parameters["initial_parameters"]["mode"]:
             term += " " + str(mode)
         logger.info(term)
         logger.info(
@@ -361,7 +368,7 @@ def check_marginal_params(param: dict):
     # Checking the detrend parameters if any
     if not "detrend" in param.keys():
         param["detrend"] = {}
-        param["transform"]["make"] = False
+        param["detrend"]["make"] = False
     else:
         if param["detrend"]["make"]:
             if not param["detrend"]["method"] in [
@@ -530,13 +537,20 @@ def check_marginal_params(param: dict):
         k += 1
 
     # Check if initial parameters are given
-    if not "initial_parameters" in param.keys():
+    if (
+        not "initial_parameters" in param.keys()
+        and param["basis_function"]["method"] != "trigonometric"
+    ):
         param["initial_parameters"] = {}
-        param["initial_parameters"]["par"], param["initial_parameters"]["mode"] = {}, {}
-    else:
+        param["initial_parameters"]["make"] = False
+    elif "initial_parameters" in param.keys():
+        if not "make" in param["initial_parameters"]:
+            raise ValueError(
+                "The evaluation of a certain mode requires that initial parameter 'make' set to True. Not given."
+            )
         if not "par" in param["initial_parameters"].keys():
             raise ValueError(
-                "The evaluation of a certain mode required the initial parameters 'par'. Give the par."
+                "The evaluation of a certain mode requires the initial parameter 'par'. Give the par."
             )
         else:
             logger.info(
@@ -548,7 +562,7 @@ def check_marginal_params(param: dict):
             k += 1
         if not "mode" in param["initial_parameters"].keys():
             raise ValueError(
-                "The evaluation of a mode required the initial mode 'mode'. Give the mode."
+                "The evaluation of a mode requires the initial mode 'mode'. Give the mode."
             )
         else:
             logger.info(
@@ -558,6 +572,18 @@ def check_marginal_params(param: dict):
                 )
             )
             k += 1
+    else:
+        param["initial_parameters"] = {}
+        param["initial_parameters"]["make"] = True
+        param["initial_parameters"]["mode"] = [param["basis_function"]["order"]]
+        param["initial_parameters"]["par"] = []
+        logger.info(
+            str(k)
+            + " - Initial parameters will be computed using series expansion of the given order ({}).".format(
+                param["basis_function"]["order"]
+            )
+        )
+        k += 1
 
     if not "optimization" in param.keys():
         param["optimization"] = {}
@@ -582,6 +608,13 @@ def check_marginal_params(param: dict):
 
     if not "method" in param["optimization"]:
         param["optimization"]["method"] = "SLSQP"
+    else:
+        logger.info(
+            "{} - Optimization method was given by user ({})".format(
+                str(k), str(param["optimization"]["method"])
+            )
+        )
+        k += 1
 
     if not "giter" in param["optimization"].keys():
         param["optimization"]["giter"] = 10
@@ -1428,6 +1461,9 @@ def check_dependencies_params(param: dict):
     """
 
     logger.info("USER OPTIONS:")
+    logger.info(
+        "==============================================================================\n"
+    )
     k = 1
 
     if not "method" in param.keys():
