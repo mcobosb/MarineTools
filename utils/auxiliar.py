@@ -83,6 +83,35 @@ def nonstationary_ecdf(
     return res, pemp
 
 
+
+def best_params(data: pd.DataFrame, bins: int, distrib: str, tail: bool = False):
+    """Computes the best parameters of a simple probability model attending to the rmse of the pdf
+
+    Args:
+        * data (pd.DataFrame): raw time series
+        * bins (int): no. of bins for the histogram
+        * distrib (string): name of the probability model
+        * tail (bool, optional): If it is fit a tail or not. Defaults to False.
+
+    Returns:
+        * params (list): the estimated parameters
+    """
+
+    dif_, sser = 1e2, 1e3
+    nlen = int(len(data) / 200)
+
+    data = data.sort_values(ascending=True).values
+    while (dif_ > 1) & (sser > 30) & (0.95 * nlen < len(data)):
+        results = fit_(data, bins, distrib)
+        sse, params = results[0], results[1:]
+        dif_, sser = np.abs(sser - sse), sse
+
+        if tail:
+            data = data[int(nlen / 4) :]
+        else:
+            data = data[nlen:-nlen]
+    return params
+
 def ecdf(df: pd.DataFrame, variable: str, no_perc: int or bool = False):
     """Computes the empirical cumulative distribution function
 
@@ -838,7 +867,8 @@ def scaler(data, method="MinMaxScaler", transform=True, scale=False):
     Returns:
         [type]: [description]
     """
-    from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+    from sklearn.preprocessing import (MinMaxScaler, RobustScaler,
+                                       StandardScaler)
 
     algorithms = {
         "MinMaxScaler": MinMaxScaler(),
