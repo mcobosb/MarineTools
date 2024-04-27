@@ -6,7 +6,8 @@ import scipy.stats as st
 from loguru import logger
 from marinetools.utils import auxiliar, read, save
 from scipy.integrate import quad
-from scipy.optimize import differential_evolution, dual_annealing, minimize, shgo
+from scipy.optimize import (differential_evolution, dual_annealing, minimize,
+                            shgo)
 
 warnings.filterwarnings("ignore")
 
@@ -56,7 +57,7 @@ def st_analysis(df: pd.DataFrame, param: dict):
         thresholds = np.hstack(
             [df[param["var"]].min(), param["ws_ps"], df[param["var"]].max()]
         )
-        # df = emp(df, percentiles, param["var"])
+        # df, _ = auxiliar.nonstationary_ecdf(df, percentiles, param["var"])
         for i in param["fun"].keys():
             filtro = (df[param["var"]] >= thresholds[i]) & (
                 df[param["var"]] <= thresholds[i + 1]
@@ -118,7 +119,9 @@ def st_analysis(df: pd.DataFrame, param: dict):
                 par0 = param["fun"][0].fit(df[param["var"]])
             else:
                 percentiles = np.hstack([0, param["ws_ps"], 1])
-                df = emp(df, percentiles, param["var"], circular=param["circular"])
+                df, _ = auxiliar.nonstationary_ecdf(
+                    df, percentiles, param["var"], circular=param["circular"]
+                )
 
                 if param["no_fun"] == 2:
                     ibody = df[param["var"]] <= df["u1"]
@@ -164,53 +167,24 @@ def st_analysis(df: pd.DataFrame, param: dict):
                     if not param["fix_percentiles"]:
                         par0 = np.hstack([par0, st.norm.ppf(param["ws_ps"])])
 
-    if param[
-        "guess"
-    ]:  # checked outside because some previous parameters are required later
-        logger.info("Initial guess computed: " + str(par0))
-        par0 = param["p0"]
-        logger.info("Initial guess given: " + str(par0))
-    else:
-        logger.info("Initial guess computed: " + str(par0))
+    # if param[
+    #     "guess"
+    # ]:  # checked outside because some previous parameters are required later
+    #     logger.info("Initial guess computed: " + str(par0))
+    #     par0 = param["p0"]
+    #     logger.info("Initial guess given: " + str(par0))
+    # else:
+    #     logger.info("Initial guess computed: " + str(par0))
     mode = np.zeros(param["no_fun"], dtype=int).tolist()
 
-    if (not param["guess"]) & (any(np.abs(par0) > 20)):
-        warnings.warn(
-            "Parameters of the initial guess are high. The convergence is not ensured."
-            + "It is recommended: (i) modify the percentiles, or (ii) increase the"
-            + "bounds."
-        )
+    # if (not param["guess"]) & (any(np.abs(par0) > 20)):
+    #     warnings.warn(
+    #         "Parameters of the initial guess are high. The convergence is not ensured."
+    #         + "It is recommended: (i) modify the percentiles, or (ii) increase the"
+    #         + "bounds."
+    #     )
 
     return df, par0, mode
-
-
-def best_params(data: pd.DataFrame, bins: int, distrib: str, tail: bool = False):
-    """Computes the best parameters of a simple probability model attending to the rmse of the pdf
-
-    Args:
-        * data (pd.DataFrame): raw time series
-        * bins (int): no. of bins for the histogram
-        * distrib (string): name of the probability model
-        * tail (bool, optional): If it is fit a tail or not. Defaults to False.
-
-    Returns:
-        * params (list): the estimated parameters
-    """
-
-    dif_, sser = 1e2, 1e3
-    nlen = int(len(data) / 200)
-
-    data = data.sort_values(ascending=True).values
-    while (dif_ > 1) & (sser > 30) & (0.95 * nlen < len(data)):
-        results = fit_(data, bins, distrib)
-        sse, params = results[0], results[1:]
-        dif_, sser = np.abs(sser - sse), sse
-
-        if tail:
-            data = data[int(nlen / 4) :]
-        else:
-            data = data[nlen:-nlen]
-    return params
 
 
 def fit_(data: pd.DataFrame, bins: int, model: str):
@@ -256,29 +230,29 @@ def nonst_analysis(df: pd.DataFrame, param: dict):
     """
 
     par, bic, nllf = nonst_fit(df, param)
-    if not any(param["mode"]):
+    if not any(param["initial_parameters"]["mode"]):
         if param["basis_function"]["order"] > 1:
             if param["bic"]:
                 mode = min(bic, key=bic.get)
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
             else:
                 mode = min(nllf, key=nllf.get)
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
         elif param["basis_function"]["order"] == 1:
             if param["bic"]:
                 mode = list(bic.keys())[0]
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
             else:
                 mode = list(nllf.keys())[0]
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
         else:
             mode = np.zeros(param["no_fun"], dtype=int)
             param["par"] = list(par)
-            param["mode"] = [int(i) for i in mode]
+            param["initial_parameters"]["mode"] = [int(i) for i in mode]
 
         all_ = []
         for i in bic.keys():
@@ -287,7 +261,7 @@ def nonst_analysis(df: pd.DataFrame, param: dict):
         param["all"] = all_
     else:
         param["par"] = list(par)
-        param["all"] = [str(param["mode"]), bic, list(par)]
+        param["all"] = [str(param["initial_parameters"]["mode"]), bic, list(par)]
 
     return param
 
@@ -308,7 +282,9 @@ def nonst_fit(df: pd.DataFrame, param: dict):
     # ----------------------------------------------------------------------------------
     # Check if a mode is not given. Run the general analysis
     # ----------------------------------------------------------------------------------
-    if not any(param["mode"]):
+    if param["basis_function"]["method"] != "trigonometric" or not any(
+        param["initial_parameters"]["mode"]
+    ):
 
         if param["basis_function"]["order"] >= 1:
             par, nllf, mode = fourier_expansion(df, par, param)
@@ -323,11 +299,78 @@ def nonst_fit(df: pd.DataFrame, param: dict):
         # ------------------------------------------------------------------------------
         # Check if a mode is given. Optimize a specific mode (and parameters)
         # ------------------------------------------------------------------------------
+        if not any(param["initial_parameters"]["par"]):
+            param = fourier_initialization(df, param)
         nllf = 1e9
         par, nllf, _ = fourier_expansion(df, param["par"], param)
         bic = 2 * nllf + np.log(len(df[param["var"]])) * (len(par))
 
     return par, bic, nllf
+
+
+def fourier_initialization(df, param):
+    """Initialize the parameters for trigonometric expansion at a given order. Makes
+    fast the optimization
+
+    Args:
+        df (_type_): _description_
+        param (_type_): _description_
+    """
+    # To be added
+    timestep = 1 / 365.25
+    wlen = 14 / 365.25  # ventana mensual
+    time_ = np.arange(0, 1, timestep)
+
+    for index_, i in enumerate(time_):
+        if i >= (1 - wlen):
+            final_offset = i + wlen - 1
+            mask = ((df["n"] >= i - wlen) & (df["n"] <= i + wlen)) | (
+                df["n"] <= final_offset
+            )
+        elif i <= wlen:
+            initial_offset = i - wlen
+            mask = ((df["n"] >= i - wlen) & (df["n"] <= i + wlen)) | (
+                df["n"] >= 1 + initial_offset
+            )
+        else:
+            mask = (df["n"] >= i - wlen) & (df["n"] <= i + wlen)
+
+        _, par_, _ = st_analysis(df.loc[mask], param)
+        if index_ == 0:
+            res = pd.DataFrame(0, index=time_, columns=np.arange(len(par_)))
+
+        res.loc[i, :] = par_
+
+    parameters = []
+    for var_ in range(param["no_tot_param"]):
+        # Compute the Fast Fourier Transform
+        coefs = np.fft.fft(res.loc[:, var_] - np.mean(res.loc[:, var_]))
+
+        N = len(res.loc[:, var_])
+        # Choose one side of the spectra
+        cn = np.ravel(coefs[0 : N // 2] / N)
+
+        an, bn = 2 * np.real(cn), -2 * np.imag(cn)
+
+        an = an[: param["initial_parameters"]["mode"][0] + 1]
+        bn = bn[: param["initial_parameters"]["mode"][0] + 1]
+
+        parameters = np.hstack([parameters, np.mean(res.loc[:, var_])])
+        for order_k in range(param["initial_parameters"]["mode"][0]):
+            parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
+
+    if param["reduction"]:
+        # Adding the weights
+        parameters = np.hstack([parameters, res.iloc[0, -2], res.iloc[0, -1]])
+        param["initial_parameters"]["mode"] = (
+            param["initial_parameters"]["mode"][0],
+            param["initial_parameters"]["mode"][0],
+        )
+
+    param["initial_parameters"]["par"] = parameters.tolist()
+    param["par"] = param["initial_parameters"]["par"]
+    param["mode"] = param["initial_parameters"]["mode"]
+    return param
 
 
 def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
@@ -344,7 +387,7 @@ def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
         * mode (dict): parameter of the first order
     """
     nllf = {}
-    if not any(param["mode"]):
+    if not any(param["initial_parameters"]["mode"]):
         mode = []
         if param["no_fun"] == 1:
             for i in range(1, param["basis_function"]["order"] + 1):
@@ -407,7 +450,7 @@ def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
                     data, param, par0[imode], imode, nllf[comp_]
                 )
     else:
-        mode = [tuple(param["mode"])]
+        mode = [tuple(param["initial_parameters"]["mode"])]
         logger.info("Mode " + str(mode[0]) + " non-stationary")
         par, nllf = fit(data, param, par, mode[0], 1e10)
 
@@ -1215,6 +1258,7 @@ def get_params(df: pd.DataFrame, param: dict, par: list, imod: list, t_expans):
                 ]
             ):
                 pars_fourier = 2
+            # Check if detrend is required
 
             df["shape"] = par[0] + np.dot(
                 par[1 : mode[0] * pars_fourier + 1],
@@ -1224,6 +1268,8 @@ def get_params(df: pd.DataFrame, param: dict, par: list, imod: list, t_expans):
                 par[mode[0] * pars_fourier + 2 : mode[0] * pars_fourier * 2 + 2],
                 t_expans[0 : mode[0] * pars_fourier, :],
             )
+
+            # Check the parameters no. of the probability model for the body
             if param["no_param"][0] == 2:
                 df["xi2"] = par[mode[0] * pars_fourier * 2 + 2] + np.dot(
                     par[
@@ -1553,13 +1599,15 @@ def ppf(df: pd.DataFrame, param: dict):
         df (pd.DataFrame): inverse of the cdf
     """
 
-    t_expans = params_t_expansion(param["mode"], param, df["n"])
+    t_expans = params_t_expansion(param["initial_parameters"]["mode"], param, df["n"])
 
     if param["reduction"]:
         # ------------------------------------------------------------------------------
         # If reduction is possible
         # ------------------------------------------------------------------------------
-        df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
+        df, esc = get_params(
+            df, param, param["par"], param["initial_parameters"]["mode"], t_expans
+        )
 
         # Choose data below esc[1]
         idu1 = df["prob"] < esc[1]
@@ -1597,7 +1645,9 @@ def ppf(df: pd.DataFrame, param: dict):
             # --------------------------------------------------------------------------
             # If only one probability model is given
             # --------------------------------------------------------------------------
-            df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
+            df, esc = get_params(
+                df, param, param["par"], param["initial_parameters"]["mode"], t_expans
+            )
             if param["no_param"][0] == 2:
                 df[0][param["var"]] = param["fun"][0].ppf(
                     df[0]["prob"], df[0]["s"], df[0]["l"]
@@ -1658,13 +1708,15 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
         * prob (pd.DataFrame): the non-excedence probability
     """
 
-    t_expans = params_t_expansion(param["mode"], param, df["n"])
+    t_expans = params_t_expansion(param["initial_parameters"]["mode"], param, df["n"])
     if not any(df.columns == "prob"):
         df["prob"] = 0
 
     if param["reduction"]:
         # Reduction allowed
-        df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
+        df, esc = get_params(
+            df, param, param["par"], param["initial_parameters"]["mode"], t_expans
+        )
 
         if not "data" in df.columns:
             df.rename(columns={param["var"]: "data"}, inplace=True)
@@ -1710,7 +1762,9 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
         # Not reduction applied
         if param["no_fun"] == 1:
             # One PM
-            df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
+            df, esc = get_params(
+                df, param, param["par"], param["initial_parameters"]["mode"], t_expans
+            )
 
             if param["no_param"][0] == 2:
                 df[0]["prob"] = param["fun"][0].cdf(
@@ -1729,14 +1783,16 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
                 else:
                     data = np.linspace(param["minimax"][0], param["minimax"][1], 1000)
                 dfn = np.sort(df["n"].unique())
-                t_expans = params_t_expansion(param["mode"], param, dfn)
+                t_expans = params_t_expansion(
+                    param["initial_parameters"]["mode"], param, dfn
+                )
                 aux = pd.DataFrame(-1, index=dfn, columns=["s"])
                 aux["n"] = df["n"]
                 dff, esc = get_params(
                     aux,
                     param,
                     param["par"],
-                    param["mode"],
+                    param["initial_parameters"]["mode"],
                     t_expans,
                 )
                 cdf_ = np.zeros([len(dfn), len(data)])
@@ -1902,7 +1958,13 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
                                 )
 
             else:
-                df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
+                df, esc = get_params(
+                    df,
+                    param,
+                    param["par"],
+                    param["initial_parameters"]["mode"],
+                    t_expans,
+                )
                 df[0]["prob"] = 0
                 # ----------------------------------------------------------------------
                 # Different approach using restrictions
@@ -2384,42 +2446,6 @@ def print_message(res: dict, j: int, mode: list, ref: float):
             )
 
     return
-
-
-def emp(data, pemp, variable, wind_length=1 / 50, circular=False):
-    """Computes the non-stationary empirical percentile of data
-
-    Args:
-        * data (pd.DataFrame): raw time series
-        * pemp (list): list with the empirical percentiles to be computed
-        * variable (string): the name of the variable
-        * wind_length (int, optional): window length in term of the normalize time. Defaults to 1/50.
-        * circular (bool, optional): simplification for circular analysis
-
-    Returns:
-        * data (pd.DataFrame): the data with new columns of percentiles
-    """
-
-    thresholds = []
-
-    for i, _ in enumerate(pemp):
-        thresholds.append("u" + str(i))
-        data["u" + str(i)] = 0
-
-    if circular:
-        data["u" + str(len(pemp) - 1)] = 2 * np.pi
-        thresholds = thresholds[1:-1]
-        pemp = pemp[1:-1]
-
-    for i in data["n"].unique():
-        data.loc[data["n"] == i, thresholds] = (
-            data[variable]
-            .loc[(data["n"] >= i - wind_length) & (data["n"] <= i + wind_length)]
-            .quantile(q=pemp)
-            .values
-        )
-
-    return data
 
 
 class wrap_norm(st.rv_continuous):
