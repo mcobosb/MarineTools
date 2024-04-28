@@ -353,7 +353,7 @@ def netcdf(
                 latitude=latlon[1],
                 method="nearest",
             ).to_dataframe()
-        print("Nearest lat-lon point: ", nearestLatLon)
+        # print("Nearest lat-lon point: ", nearestLatLon)
         if variables is not None:
             if len(variables) == 1:
                 data = data[[variables]]
