@@ -596,26 +596,10 @@ def shp(fname: str, joint: bool = False, var_: str = None):
                 xy.append(np.asarray(shape_file["geometry"][k].coords.xy).T)
             elif type_ == "Polygon":
                 xy.append(np.asarray(shape_file["geometry"][k].exterior.coords.xy).T)
-            elif type_ == "Multipoints":
-                xy.append(
-                    np.asarray(
-                        shape_file.apply(
-                            lambda x: [y for y in x["geometry"].exterior.coords], axis=0
-                        )[k].T
-                    )
-                )
+            elif type_ == "MultiPoint":
+                xy.append(np.asarray(shape_file["geometry"][k].centroid.coords.xy).T)
             elif type_ == "LineString":
                 xy.append(np.asarray(shape_file["geometry"][k].coords.xy).T)
-                # xy.append(
-                #     np.asarray(
-                #         shape_file.apply(
-                #             lambda x: [y for y in x["geometry"][k].coords.xy], axis=1
-                #         )
-                #     )
-                # )
-                if var_ is not None:
-                    extra_var.append(shape_file[var_][k])
-
             elif type_ == "MultiLineString":
                 for linestring_ in shape_file["geometry"][k]:
                     xy.append(np.asarray(linestring_.coords.xy).T)
@@ -642,6 +626,9 @@ def shp(fname: str, joint: bool = False, var_: str = None):
                     "Shapefile can not be readed with methods coords or exterior.coords or exterior.coords.xy"
                 )
 
+            if var_ is not None:
+                extra_var.append(shape_file[var_][k])
+
             element += 1
         k += 1
 
@@ -653,7 +640,7 @@ def shp(fname: str, joint: bool = False, var_: str = None):
                         [
                             element[:, 0],
                             element[:, 1],
-                            np.ones(len(element)) * extra_var[k],
+                            extra_var[k],
                         ]
                     ).T,
                     columns=["x", "y", var_],
