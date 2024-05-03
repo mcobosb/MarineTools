@@ -6,8 +6,7 @@ import scipy.stats as st
 from loguru import logger
 from marinetools.utils import auxiliar, read, save
 from scipy.integrate import quad
-from scipy.optimize import (differential_evolution, dual_annealing, minimize,
-                            shgo)
+from scipy.optimize import differential_evolution, dual_annealing, minimize, shgo
 
 warnings.filterwarnings("ignore")
 
@@ -93,10 +92,14 @@ def st_analysis(df: pd.DataFrame, param: dict):
                             par0[i] + param["optimization"]["bounds"],
                         ]
                     else:
-                        bnds[i] = [
-                            0,
-                            par0[i] + param["optimization"]["bounds"],
-                        ]
+                        if par0[i] > 0:
+
+                            bnds[i] = [
+                                0,
+                                par0[i] + param["optimization"]["bounds"],
+                            ]
+                        else:
+                            bnds[i] = [par0[i] - param["optimization"]["bounds"], 0]
 
                 bnds = tuple(bnds)
 
