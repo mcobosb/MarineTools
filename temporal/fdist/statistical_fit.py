@@ -317,8 +317,8 @@ def fourier_initialization(df, param):
         param (_type_): _description_
     """
     # To be added
-    timestep = 1 / 365.25
-    wlen = 14 / 365.25  # ventana mensual
+    timestep = 7 / 365.25
+    wlen = 30 / 365.25  # ventana mensual
     time_ = np.arange(0, 1, timestep)
     logger.info("Initializing parameters through Fourier Series on a moving window.")
 
@@ -342,7 +342,10 @@ def fourier_initialization(df, param):
             res = pd.DataFrame(0, index=time_, columns=np.arange(len(par_)))
 
         res.loc[i, :] = par_
-
+    import matplotlib.pyplot as plt
+    plt.figure()
+    plt.plot(res)
+    plt.show()
     parameters = []
     for var_ in range(param["no_tot_param"]):
         # Compute the Fast Fourier Transform
