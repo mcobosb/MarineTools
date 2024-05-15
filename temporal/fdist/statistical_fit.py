@@ -87,16 +87,16 @@ def st_analysis(df: pd.DataFrame, param: dict):
                 bnds = None
             else:
                 for i in range(0, len(par0)):
-                    if i >= param["no_tot_param"]:
-                        bnds[i] = [
-                            par0[i] - param["optimization"]["bounds"],
-                            par0[i] + param["optimization"]["bounds"],
-                        ]
-                    else:
-                        bnds[i] = [
-                            0,
-                            par0[i] + param["optimization"]["bounds"],
-                        ]
+                    # if i >= param["no_tot_param"]:
+                    bnds[i] = [
+                        par0[i] - param["optimization"]["bounds"],
+                        par0[i] + param["optimization"]["bounds"],
+                    ]
+                    # else:
+                    #     bnds[i] = [
+                    #         0,
+                    #         par0[i] + param["optimization"]["bounds"],
+                    #     ]
 
                 bnds = tuple(bnds)
 
@@ -320,8 +320,10 @@ def fourier_initialization(df, param):
     timestep = 1 / 365.25
     wlen = 14 / 365.25  # ventana mensual
     time_ = np.arange(0, 1, timestep)
+    logger.info("Initializing parameters through Fourier Series on a moving window.")
 
     for index_, i in enumerate(time_):
+        print(index_, len(time_))
         if i >= (1 - wlen):
             final_offset = i + wlen - 1
             mask = ((df["n"] >= i - wlen) & (df["n"] <= i + wlen)) | (
@@ -370,6 +372,8 @@ def fourier_initialization(df, param):
     param["initial_parameters"]["par"] = parameters.tolist()
     param["par"] = param["initial_parameters"]["par"]
     param["mode"] = param["initial_parameters"]["mode"]
+    logger.info("Initial parameters obtained.")
+    logger.info(param["par"])
     return param
 
 
