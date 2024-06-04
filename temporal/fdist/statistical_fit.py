@@ -1,3 +1,4 @@
+import sys
 import warnings
 
 import numpy as np
@@ -7,6 +8,9 @@ from loguru import logger
 from marinetools.utils import auxiliar, read, save
 from scipy.integrate import quad
 from scipy.optimize import differential_evolution, dual_annealing, minimize, shgo
+
+logger.remove()
+logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
 
 warnings.filterwarnings("ignore")
 
@@ -117,15 +121,17 @@ def st_analysis(df: pd.DataFrame, param: dict):
             if param["no_fun"] == 1:
                 par0 = param["fun"][0].fit(df[param["var"]])
             else:
-                percentiles = np.hstack([0, param["ws_ps"], 1])
-                df, _ = auxiliar.nonstationary_ecdf(df, param["var"], pemp=percentiles)
+                # percentiles = np.hstack([0, param["ws_ps"], 1])
+                res, _ = auxiliar.nonstationary_ecdf(
+                    df, param["var"], pemp=param["ws_ps"]
+                )
                 if len(param["ws_ps"]) == 1:
                     res.columns = ["u1"]
-                    df["u1"] = 0
+                    df["u1"] = 0.0
                     for n_ in res.index:
                         df.loc[df.n == n_, "u1"] = res.loc[n_, "u1"]
                 elif len(param["ws_ps"]) == 2:
-                    res.columns = ["u1", "u2"]
+                    # res.columns = ["u1", "u2"]
                     df["u1"], df["u2"] = 0, 0
                     for n_ in res.index:
                         df.loc[df.n == n_, "u1"] = res.loc[n_, "u1"]

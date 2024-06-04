@@ -49,6 +49,7 @@ def handle_axis(
         * Same as the arguments
     """
 
+    fig = None
     if not ax:
         if dim == 2:
             fig, ax = plt.subplots(row_plots, col_plots, figsize=figsize, **kwargs)
@@ -62,8 +63,7 @@ def handle_axis(
 
         if row_plots + col_plots > 2:
             ax = ax.flatten()
-    else:
-        fig = None
+
     return fig, ax
 
 

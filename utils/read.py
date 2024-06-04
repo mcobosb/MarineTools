@@ -100,19 +100,19 @@ def PdE(file_name: str, new: bool = False):
             engine="python",
         )
         data.columns = [
-                "Hs",
-                "Tm",
-                "Tp",
-                "DirM",
-                "Hswind",
-                "DirMwind",
-                "Hsswell1",
-                "Tmswell1",
-                "DirMswell1",
-                "Hsswell2",
-                "Tmswell2",
-                "DirMswell2",
-            ]
+            "Hs",
+            "Tm",
+            "Tp",
+            "DirM",
+            "Hswind",
+            "DirMwind",
+            "Hsswell1",
+            "Tmswell1",
+            "DirMswell1",
+            "Hsswell2",
+            "Tmswell2",
+            "DirMswell2",
+        ]
     else:
         with open(file_name) as file_:
             content = file_.readlines()
