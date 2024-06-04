@@ -99,24 +99,20 @@ def PdE(file_name: str, new: bool = False):
             header=None,
             engine="python",
         )
-        data.set_axis(
-            [
-                "Hs",
-                "Tm",
-                "Tp",
-                "DirM",
-                "Hswind",
-                "DirMwind",
-                "Hsswell1",
-                "Tmswell1",
-                "DirMswell1",
-                "Hsswell2",
-                "Tmswell2",
-                "DirMswell2",
-            ],
-            axis=1,
-            inplace=True,
-        )
+        data.columns = [
+            "Hs",
+            "Tm",
+            "Tp",
+            "DirM",
+            "Hswind",
+            "DirMwind",
+            "Hsswell1",
+            "Tmswell1",
+            "DirMswell1",
+            "Hsswell2",
+            "Tmswell2",
+            "DirMswell2",
+        ]
     else:
         with open(file_name) as file_:
             content = file_.readlines()
@@ -313,7 +309,7 @@ def netcdf(
 
     # data = Dataset(fname + '.nc', mode='r', format='NETCDF4')
     if not glob:
-        data = xr.open_dataset(file_name + ".nc")
+        data = xr.open_dataset(file_name)
     else:
         try:
             data = xr.open_mfdataset(file_name)
