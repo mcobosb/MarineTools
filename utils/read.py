@@ -309,7 +309,7 @@ def netcdf(
 
     # data = Dataset(fname + '.nc', mode='r', format='NETCDF4')
     if not glob:
-        data = xr.open_dataset(file_name + ".nc")
+        data = xr.open_dataset(file_name)
     else:
         try:
             data = xr.open_mfdataset(file_name)
