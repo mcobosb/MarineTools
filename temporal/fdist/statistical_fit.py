@@ -120,7 +120,7 @@ def st_analysis(df: pd.DataFrame, param: dict):
             else:
                 percentiles = np.hstack([0, param["ws_ps"], 1])
                 df, _ = auxiliar.nonstationary_ecdf(
-                    df, percentiles, param["var"], circular=param["circular"]
+                    df, param["var"], pemp=percentiles
                 )
 
                 if param["no_fun"] == 2:
