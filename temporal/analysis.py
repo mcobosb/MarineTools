@@ -90,7 +90,6 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                 - 'make': True or False
                 - 'mode': a list with the mode to be computed independently,
                 - 'par': initial guess of the parameters for the mode given
-            - 'folder_name': string where the folder where the analysis will be saved
             (optional)
             - 'file_name': string where it will be saved the analysis (optional)
 
@@ -120,7 +119,6 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                         'giter': 10,
                         'scale': False,
                         'bic': True or False,
-                        'folder_name': 'marginalfit'
                         'file_name': if not given, it is created from input parameters
                         }
                     }
@@ -256,6 +254,8 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         logger.info(
             "=============================================================================="
         )
+        # Make the stationary analysis first
+        df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
         # Make the non-stationary analysis
         parameters = stf.nonst_analysis(df, parameters)
 
@@ -310,13 +310,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     logger.info("End fitting process")
     logger.info("--- %s seconds ---" % (time.time() - start_time))
 
-    # Save the parameters in the file if "fname" is given in params
-    auxiliar.mkdir(parameters["folder_name"])
+    # Save the parameters in the file if "file_name" is given in params
+    # auxiliar.mkdir(parameters["folder_name"])
 
     if not "file_name" in parameters.keys():
         generate_outputfilename(parameters)
-    else:
-        parameters["file_name"] = parameters["folder_name"] + parameters["file_name"]
 
     del parameters["weighted"]["values"]
     save.to_json(parameters, parameters["file_name"])
@@ -537,10 +535,7 @@ def check_marginal_params(param: dict):
         k += 1
 
     # Check if initial parameters are given
-    if (
-        not "initial_parameters" in param.keys()
-        and param["basis_function"]["method"] != "trigonometric"
-    ):
+    if not "initial_parameters" in param.keys():
         param["initial_parameters"] = {}
         param["initial_parameters"]["make"] = False
     elif "initial_parameters" in param.keys():
@@ -549,9 +544,11 @@ def check_marginal_params(param: dict):
                 "The evaluation of a certain mode requires that initial parameter 'make' set to True. Not given."
             )
         if not "par" in param["initial_parameters"].keys():
-            raise ValueError(
-                "The evaluation of a certain mode requires the initial parameter 'par'. Give the par."
-            )
+            param["initial_parameters"]["par"] = []
+            logger.info(
+                str(k)
+                + " - Parameters of optimization not given. It will be applied the Fourier initialization.")
+            k += 1
         else:
             logger.info(
                 str(k)
@@ -572,6 +569,8 @@ def check_marginal_params(param: dict):
                 )
             )
             k += 1
+        if not "plot" in param["initial_parameters"].keys():
+            param["initial_parameters"]["plot"] = False
     else:
         param["initial_parameters"] = {}
         param["initial_parameters"]["make"] = True
@@ -591,6 +590,14 @@ def check_marginal_params(param: dict):
         param["optimization"]["eps"] = 1e-7
         param["optimization"]["maxiter"] = 1e2
         param["optimization"]["ftol"] = 1e-4
+        if param["initial_parameters"]["make"]:
+            logger.info(
+                str(k)
+                + " - Optimization method more adequate using the Fourier Series initialization is {}.".format("dual_annealing")
+            )
+            param["optimization"]["method"] = "dual_annealing"
+
+        k += 1
     else:
         if param["optimization"] is None:
             param["optimization"] = {}
@@ -606,15 +613,15 @@ def check_marginal_params(param: dict):
             if not "ftol" in param["optimization"].keys():
                 param["optimization"]["ftol"] = 1e-4
 
-    if not "method" in param["optimization"]:
-        param["optimization"]["method"] = "SLSQP"
-    else:
-        logger.info(
-            "{} - Optimization method was given by user ({})".format(
-                str(k), str(param["optimization"]["method"])
-            )
-        )
-        k += 1
+    # if not "method" in param["optimization"]:
+    #     param["optimization"]["method"] = "SLSQP"
+    # else:
+    #     logger.info(
+    #         "{} - Optimization method was given by user ({})".format(
+    #             str(k), str(param["optimization"]["method"])
+    #         )
+    #     )
+    #     k += 1
 
     if not "giter" in param["optimization"].keys():
         param["optimization"]["giter"] = 10
@@ -692,14 +699,14 @@ def check_marginal_params(param: dict):
             param["ws_ps"] = []
         elif (not "ws_ps" in param) & (param["no_fun"] - 1 != 0):
             raise ValueError(
-                "Expected {} weight\s for the analysis. However ws_ps option is not given.".format(
+                "Expected {} weight\\s for the analysis. However ws_ps option is not given.".format(
                     str(param["no_fun"] - 1)
                 )
             )
 
         if len(param["ws_ps"]) != param["no_fun"] - 1:
             raise ValueError(
-                "Expected {} weight\s for the analysis. Got {}.".format(
+                "Expected {} weight\\s for the analysis. Got {}.".format(
                     str(param["no_fun"] - 1), str(len(param["ws_ps"]))
                 )
             )
@@ -709,7 +716,7 @@ def check_marginal_params(param: dict):
         param["circular"] = True
         logger.info("{} - Type 'circular' is set to True.".format(str(k)))
     else:
-        logger.info("{} - Type 'circular' is set to False.".format(str(k)))
+        logger.info("{} - Type 'linear' is set to True.".format(str(k)))
         param["circular"] = False
     k += 1
 
@@ -754,10 +761,8 @@ def check_marginal_params(param: dict):
     else:
         param["fix_percentiles"] = False
 
-    if not "folder_name" in param.keys():
-        param["folder_name"] = "marginalfit/"
-    else:
-        param["folder_name"] += "/marginalfit/"
+    # if not "folder_name" in param.keys():
+    #     param["folder_name"] = "marginalfit/"
 
     if not "scale-shift" in param.keys():
         param["scale-shift"] = False
@@ -801,50 +806,50 @@ def check_marginal_params(param: dict):
     return param
 
 
-def init_fourier_coefs():
-    """Compute an estimation of the initial parameters for trigonometric expansions"""
-    timestep = 1 / 365.25
-    wlen = 14 / 365.25  # 14-days window
-    res = pd.DataFrame(
-        0, index=np.arange(0, 1, timestep), columns=["s", "loc", "scale"]
-    )
-    for ii, i in enumerate(res.index):
-        if i >= (1 - wlen):
-            final_offset = i + wlen - 1
-            mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
-                data["n"] <= final_offset
-            )
-        elif i <= wlen:
-            initial_offset = i - wlen
-            mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
-                data["n"] >= 1 + initial_offset
-            )
-        else:
-            mask = (data["n"] >= i - wlen) & (data["n"] <= i + wlen)
+# def init_fourier_coefs():
+#     """Compute an estimation of the initial parameters for trigonometric expansions"""
+#     timestep = 1 / 365.25
+#     wlen = 14 / 365.25  # 14-days window
+#     res = pd.DataFrame(
+#         0, index=np.arange(0, 1, timestep), columns=["s", "loc", "scale"]
+#     )
+#     for ii, i in enumerate(res.index):
+#         if i >= (1 - wlen):
+#             final_offset = i + wlen - 1
+#             mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
+#                 data["n"] <= final_offset
+#             )
+#         elif i <= wlen:
+#             initial_offset = i - wlen
+#             mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
+#                 data["n"] >= 1 + initial_offset
+#             )
+#         else:
+#             mask = (data["n"] >= i - wlen) & (data["n"] <= i + wlen)
 
-        model = st.gamma
-        result = st.fit(
-            model,
-            data[station].loc[mask],
-            bounds=[(0, 5), bound, (0, 100)],
-        )
-        res.loc[i, :] = result.params.a, result.params.loc, result.params.scale
+#         model = st.gamma
+#         result = st.fit(
+#             model,
+#             data[station].loc[mask],
+#             bounds=[(0, 5), bound, (0, 100)],
+#         )
+#         res.loc[i, :] = result.params.a, result.params.loc, result.params.scale
 
-    coefs = np.fft.fft(res.loc[:, paramName] - np.mean(res.loc[:, paramName]))
+#     coefs = np.fft.fft(res.loc[:, paramName] - np.mean(res.loc[:, paramName]))
 
-    N = len(res.loc[:, paramName])
-    # Choose one side of the spectra
-    cn = np.ravel(coefs[0 : N // 2] / N)
+#     N = len(res.loc[:, paramName])
+#     # Choose one side of the spectra
+#     cn = np.ravel(coefs[0 : N // 2] / N)
 
-    an, bn = 2 * np.real(cn), -2 * np.imag(cn)
+#     an, bn = 2 * np.real(cn), -2 * np.imag(cn)
 
-    an = an[: index + 1]
-    bn = bn[: index + 1]
+#     an = an[: index + 1]
+#     bn = bn[: index + 1]
 
-    parameters = np.mean(res.loc[:, paramName])
-    for order_k in range(index):
-        parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
-    return
+#     parameters = np.mean(res.loc[:, paramName])
+#     for order_k in range(index):
+#         parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
+#     return
 
 
 def nanoise(
@@ -1778,6 +1783,5 @@ def generate_outputfilename(parameters):
         filename += "_" + str(parameters["basis_function"]["degree"])
     filename += "_" + parameters["optimization"]["method"]
 
-    filename = parameters["folder_name"] + filename
     parameters["file_name"] = filename
     return
