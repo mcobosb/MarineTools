@@ -6,8 +6,7 @@ import scipy.stats as st
 from loguru import logger
 from marinetools.utils import auxiliar, read, save
 from scipy.integrate import quad
-from scipy.optimize import (differential_evolution, dual_annealing, minimize,
-                            shgo)
+from scipy.optimize import differential_evolution, dual_annealing, minimize, shgo
 
 warnings.filterwarnings("ignore")
 
@@ -82,47 +81,55 @@ def st_analysis(df: pd.DataFrame, param: dict):
             ]
             par0 = np.hstack([par1, par2, par0]).tolist()
 
-            bnds = [[] for _ in range(len(par0))]
-            if param["optimization"]["bounds"] is False:
-                bnds = None
-            else:
-                for i in range(0, len(par0)):
-                    # if i >= param["no_tot_param"]:
-                    bnds[i] = [
-                        par0[i] - param["optimization"]["bounds"],
-                        par0[i] + param["optimization"]["bounds"],
-                    ]
-                    # else:
-                    #     bnds[i] = [
-                    #         0,
-                    #         par0[i] + param["optimization"]["bounds"],
-                    #     ]
+            # bnds = [[] for _ in range(len(par0))]
+            # if param["optimization"]["bounds"] is False:
+            #     bnds = None
+            # else:
+            #     for i in range(0, len(par0)):
+            #         # if i >= param["no_tot_param"]:
+            #         bnds[i] = [
+            #             par0[i] - param["optimization"]["bounds"],
+            #             par0[i] + param["optimization"]["bounds"],
+            #         ]
+            #         # else:
+            #         #     bnds[i] = [
+            #         #         0,
+            #         #         par0[i] + param["optimization"]["bounds"],
+            #         #     ]
 
-                bnds = tuple(bnds)
+            #     bnds = tuple(bnds)
 
-            t_expans = params_t_expansion([0, 0, 0], param, df)
-            res = minimize(
-                nllf,
-                par0.copy(),
-                args=(df, [0, 0, 0], param, t_expans),
-                method="SLSQP",
-                bounds=bnds,
-                options={
-                    # "ftol": param["optimization"]["ftol"],
-                    "eps": 1e-2,  # param["optimization"]["eps"],
-                    # "maxiter": param["optimization"]["maxiter"],
-                },
-            )
-            par0 = res.x.tolist()
+            # t_expans = params_t_expansion([0, 0, 0], param, df)
+            # res = minimize(
+            #     nllf,
+            #     par0.copy(),
+            #     args=(df, [0, 0, 0], param, t_expans),
+            #     method="SLSQP",
+            #     bounds=bnds,
+            #     options={
+            #         # "ftol": param["optimization"]["ftol"],
+            #         "eps": 1e-2,  # param["optimization"]["eps"],
+            #         # "maxiter": param["optimization"]["maxiter"],
+            #     },
+            # )
+            # par0 = res.x.tolist()
         else:
             if param["no_fun"] == 1:
                 par0 = param["fun"][0].fit(df[param["var"]])
             else:
                 percentiles = np.hstack([0, param["ws_ps"], 1])
-                df, _ = auxiliar.nonstationary_ecdf(
-                    df, param["var"], pemp=percentiles
-                )
-
+                df, _ = auxiliar.nonstationary_ecdf(df, param["var"], pemp=percentiles)
+                if len(param["ws_ps"]) == 1:
+                    res.columns = ["u1"]
+                    df["u1"] = 0
+                    for n_ in res.index:
+                        df.loc[df.n == n_, "u1"] = res.loc[n_, "u1"]
+                elif len(param["ws_ps"]) == 2:
+                    res.columns = ["u1", "u2"]
+                    df["u1"], df["u2"] = 0, 0
+                    for n_ in res.index:
+                        df.loc[df.n == n_, "u1"] = res.loc[n_, "u1"]
+                        df.loc[df.n == n_, "u2"] = res.loc[n_, "u2"]
                 if param["no_fun"] == 2:
                     ibody = df[param["var"]] <= df["u1"]
                     iutail = df[param["var"]] > df["u1"]
@@ -230,7 +237,7 @@ def nonst_analysis(df: pd.DataFrame, param: dict):
     """
 
     par, bic, nllf = nonst_fit(df, param)
-    if not any(param["initial_parameters"]["mode"]):
+    if not param["initial_parameters"]["make"]:
         if param["basis_function"]["order"] > 1:
             if param["bic"]:
                 mode = min(bic, key=bic.get)
@@ -282,9 +289,7 @@ def nonst_fit(df: pd.DataFrame, param: dict):
     # ----------------------------------------------------------------------------------
     # Check if a mode is not given. Run the general analysis
     # ----------------------------------------------------------------------------------
-    if param["basis_function"]["method"] != "trigonometric" or not any(
-        param["initial_parameters"]["mode"]
-    ):
+    if not param["initial_parameters"]["make"]:
 
         if param["basis_function"]["order"] >= 1:
             par, nllf, mode = fourier_expansion(df, par, param)
@@ -317,13 +322,13 @@ def fourier_initialization(df, param):
         param (_type_): _description_
     """
     # To be added
-    timestep = 7 / 365.25
-    wlen = 30 / 365.25  # ventana mensual
+    timestep = 1 / 365.25
+    wlen = 14 / 365.25  # ventana mensual
     time_ = np.arange(0, 1, timestep)
     logger.info("Initializing parameters through Fourier Series on a moving window.")
 
     for index_, i in enumerate(time_):
-        print(index_, len(time_))
+        # print(index_, len(time_))
         if i >= (1 - wlen):
             final_offset = i + wlen - 1
             mask = ((df["n"] >= i - wlen) & (df["n"] <= i + wlen)) | (
@@ -342,14 +347,15 @@ def fourier_initialization(df, param):
             res = pd.DataFrame(0, index=time_, columns=np.arange(len(par_)))
 
         res.loc[i, :] = par_
-    import matplotlib.pyplot as plt
-    plt.figure()
-    plt.plot(res)
-    plt.show()
+    # import matplotlib.pyplot as plt
+    # plt.figure()
+    # plt.plot(res)
+    # plt.show()
     parameters = []
     for var_ in range(param["no_tot_param"]):
         # Compute the Fast Fourier Transform
-        coefs = np.fft.fft(res.loc[:, var_] - np.mean(res.loc[:, var_]))
+        mean_ = np.mean(res.loc[:, var_])
+        coefs = np.fft.fft(res.loc[:, var_] - mean_)
 
         N = len(res.loc[:, var_])
         # Choose one side of the spectra
@@ -360,9 +366,26 @@ def fourier_initialization(df, param):
         an = an[: param["initial_parameters"]["mode"][0] + 1]
         bn = bn[: param["initial_parameters"]["mode"][0] + 1]
 
-        parameters = np.hstack([parameters, np.mean(res.loc[:, var_])])
+        parameters = np.hstack([parameters, mean_])
         for order_k in range(param["initial_parameters"]["mode"][0]):
             parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
+
+        if param["initial_parameters"]["plot"]:
+            # ---- Checking function ----
+            t = res.index.values
+            cosine_funtion = np.zeros(len(t)) + np.mean(res.loc[:, var_])
+            for i, ii in enumerate(an):
+                cosine_funtion += an[i] * np.cos(2 * np.pi * i * t) + bn[i] * np.sin(
+                    2 * np.pi * i * t
+                )
+
+            import matplotlib.pyplot as plt
+
+            plt.figure()
+            plt.plot(t, cosine_funtion, label=str(var_))
+            plt.plot(res[var_])
+            plt.legend()
+            plt.show()
 
     if param["reduction"]:
         # Adding the weights
@@ -375,8 +398,8 @@ def fourier_initialization(df, param):
     param["initial_parameters"]["par"] = parameters.tolist()
     param["par"] = param["initial_parameters"]["par"]
     param["mode"] = param["initial_parameters"]["mode"]
-    logger.info("Initial parameters obtained.")
-    logger.info(param["par"])
+    # logger.info("Initial parameters obtained.")
+    # logger.info(param["par"])
     return param
 
 
@@ -394,7 +417,7 @@ def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
         * mode (dict): parameter of the first order
     """
     nllf = {}
-    if not any(param["initial_parameters"]["mode"]):
+    if not param["initial_parameters"]["make"]:
         mode = []
         if param["no_fun"] == 1:
             for i in range(1, param["basis_function"]["order"] + 1):
@@ -544,167 +567,167 @@ def initial_params(param: dict, par: list, pos: int, imode: list, comp: list):
     return par0
 
 
-def matching_lower_bound(par: dict):
-    """Matching conditions between two probability models (PMs). Lower refers to the
-    low tail-body PMs in the case of fitting three PMs.
+# def matching_lower_bound(par: dict):
+#     """Matching conditions between two probability models (PMs). Lower refers to the
+#     low tail-body PMs in the case of fitting three PMs.
 
-    Args:
-        par (dict): parameters of the usual dictionary format
+#     Args:
+#         par (dict): parameters of the usual dictionary format
 
-    Returns:
-        [type]: [description]
-    """
+#     Returns:
+#         [type]: [description]
+#     """
 
-    # ----------------------------------------------------------------------------------
-    # Obtaining the parameters
-    # ----------------------------------------------------------------------------------
-    t_expans = params_t_expansion(
-        mode, param, df.sort_values(by="n").drop_duplicates(subset=["n"]).loc[:, "n"]
-    )
-    df_, _ = get_params(
-        df.sort_values(by="n").drop_duplicates(subset=["n"]),
-        param,
-        par,
-        mode,
-        t_expans,
-    )
-    # ----------------------------------------------------------------------------------
-    # Applying the restrictions along "n"
-    # ----------------------------------------------------------------------------------
-    if not param["reduction"]:
-        # ------------------------------------------------------------------------------
-        # Using two PMs, the body PM is the first one and the second PM is used as upper
-        # tail model. Using three PMS, the body PM is the center one.
-        # ------------------------------------------------------------------------------
-        if len(df_) == 2:
-            f_body, f_tail = 0, 1
-        else:
-            f_body, f_tail = 1, 0
+#     # ----------------------------------------------------------------------------------
+#     # Obtaining the parameters
+#     # ----------------------------------------------------------------------------------
+#     t_expans = params_t_expansion(
+#         mode, param, df.sort_values(by="n").drop_duplicates(subset=["n"]).loc[:, "n"]
+#     )
+#     df_, _ = get_params(
+#         df.sort_values(by="n").drop_duplicates(subset=["n"]),
+#         param,
+#         par,
+#         mode,
+#         t_expans,
+#     )
+#     # ----------------------------------------------------------------------------------
+#     # Applying the restrictions along "n"
+#     # ----------------------------------------------------------------------------------
+#     if not param["reduction"]:
+#         # ------------------------------------------------------------------------------
+#         # Using two PMs, the body PM is the first one and the second PM is used as upper
+#         # tail model. Using three PMS, the body PM is the center one.
+#         # ------------------------------------------------------------------------------
+#         if len(df_) == 2:
+#             f_body, f_tail = 0, 1
+#         else:
+#             f_body, f_tail = 1, 0
 
-        if len(df_) == 2:
-            if param["no_param"][f_body] == 2:
-                fc_u1 = param["fun"][f_body].pdf(
-                    df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
-                )
-                Fc_u1 = param["fun"][f_body].cdf(
-                    df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
-                )
-            else:
-                fc_u1 = param["fun"][f_body].pdf(
-                    df_[f_body]["u1"],
-                    df_[f_body]["s"],
-                    df_[f_body]["l"],
-                    df_[f_body]["e"],
-                )
-                Fc_u1 = param["fun"][f_body].cdf(
-                    df_[f_body]["u1"],
-                    df_[f_body]["s"],
-                    df_[f_body]["l"],
-                    df_[f_body]["e"],
-                )
+#         if len(df_) == 2:
+#             if param["no_param"][f_body] == 2:
+#                 fc_u1 = param["fun"][f_body].pdf(
+#                     df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
+#                 )
+#                 Fc_u1 = param["fun"][f_body].cdf(
+#                     df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
+#                 )
+#             else:
+#                 fc_u1 = param["fun"][f_body].pdf(
+#                     df_[f_body]["u1"],
+#                     df_[f_body]["s"],
+#                     df_[f_body]["l"],
+#                     df_[f_body]["e"],
+#                 )
+#                 Fc_u1 = param["fun"][f_body].cdf(
+#                     df_[f_body]["u1"],
+#                     df_[f_body]["s"],
+#                     df_[f_body]["l"],
+#                     df_[f_body]["e"],
+#                 )
 
-            if param["no_param"][f_tail] == 2:
-                ft_u1 = param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
-            else:
-                ft_u1 = param["fun"][f_tail].pdf(
-                    0,
-                    df_[f_tail]["s"],
-                    df_[f_tail]["l"],
-                    df_[f_tail]["e"],
-                )
-        else:
-            if param["no_param"][f_body] == 2:
-                fc_u1 = param["fun"][f_body].pdf(
-                    df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
-                )
-                Fc_u1 = param["fun"][f_body].cdf(
-                    df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
-                )
-            else:
-                fc_u1 = param["fun"][f_body].pdf(
-                    df_[f_body]["u1"],
-                    df_[f_body]["s"],
-                    df_[f_body]["l"],
-                    df_[f_body]["e"],
-                )
-                Fc_u1 = param["fun"][f_body].cdf(
-                    df_[f_body]["u1"],
-                    df_[f_body]["s"],
-                    df_[f_body]["l"],
-                    df_[f_body]["e"],
-                )
+#             if param["no_param"][f_tail] == 2:
+#                 ft_u1 = param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
+#             else:
+#                 ft_u1 = param["fun"][f_tail].pdf(
+#                     0,
+#                     df_[f_tail]["s"],
+#                     df_[f_tail]["l"],
+#                     df_[f_tail]["e"],
+#                 )
+#         else:
+#             if param["no_param"][f_body] == 2:
+#                 fc_u1 = param["fun"][f_body].pdf(
+#                     df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
+#                 )
+#                 Fc_u1 = param["fun"][f_body].cdf(
+#                     df_[f_body]["u1"], df_[f_body]["s"], df_[f_body]["l"]
+#                 )
+#             else:
+#                 fc_u1 = param["fun"][f_body].pdf(
+#                     df_[f_body]["u1"],
+#                     df_[f_body]["s"],
+#                     df_[f_body]["l"],
+#                     df_[f_body]["e"],
+#                 )
+#                 Fc_u1 = param["fun"][f_body].cdf(
+#                     df_[f_body]["u1"],
+#                     df_[f_body]["s"],
+#                     df_[f_body]["l"],
+#                     df_[f_body]["e"],
+#                 )
 
-            if param["no_param"][f_tail] == 2:
-                ft_u1 = param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
-            else:
-                ft_u1 = param["fun"][f_tail].pdf(
-                    0, df_[f_tail]["s"], df_[f_tail]["l"], df_[f_tail]["e"]
-                )
+#             if param["no_param"][f_tail] == 2:
+#                 ft_u1 = param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
+#             else:
+#                 ft_u1 = param["fun"][f_tail].pdf(
+#                     0, df_[f_tail]["s"], df_[f_tail]["l"], df_[f_tail]["e"]
+#                 )
 
-    constraints_ = np.sqrt(1 / len(ft_u1) * np.sum((fc_u1 - Fc_u1 * ft_u1) ** 2))
+#     constraints_ = np.sqrt(1 / len(ft_u1) * np.sum((fc_u1 - Fc_u1 * ft_u1) ** 2))
 
-    return constraints_
+#     return constraints_
 
 
-def matching_upper_bound(par: dict):
-    """Matching conditions between two probability models (PMs). Upper refers to the
-    low tail-body PMs for fitting three PMs.
+# def matching_upper_bound(par: dict):
+#     """Matching conditions between two probability models (PMs). Upper refers to the
+#     low tail-body PMs for fitting three PMs.
 
-    Args:
-        par (dict): parameters of the usual dictionary format
+#     Args:
+#         par (dict): parameters of the usual dictionary format
 
-    Returns:
-        [type]: [description]
-    """
-    # ----------------------------------------------------------------------------------
-    # Obtaining the parameters
-    # ----------------------------------------------------------------------------------
-    t_expans = params_t_expansion(
-        mode, param, df.sort_values(by="n").drop_duplicates(subset=["n"]).loc[:, "n"]
-    )
-    df_, _ = get_params(
-        df.sort_values(by="n").drop_duplicates(subset=["n"]),
-        param,
-        par,
-        mode,
-        t_expans,
-    )
+#     Returns:
+#         [type]: [description]
+#     """
+#     # ----------------------------------------------------------------------------------
+#     # Obtaining the parameters
+#     # ----------------------------------------------------------------------------------
+#     t_expans = params_t_expansion(
+#         mode, param, df.sort_values(by="n").drop_duplicates(subset=["n"]).loc[:, "n"]
+#     )
+#     df_, _ = get_params(
+#         df.sort_values(by="n").drop_duplicates(subset=["n"]),
+#         param,
+#         par,
+#         mode,
+#         t_expans,
+#     )
 
-    # ----------------------------------------------------------------------------------
-    # Applying the restrictions along "n"
-    # ----------------------------------------------------------------------------------
-    if not param["reduction"]:
-        # ------------------------------------------------------------------------------
-        # Using two PMs, the body PM is the first one and the second PM is used as upper
-        # tail model. Using three PMS, the body PM is the center one.
-        # ------------------------------------------------------------------------------
-        f_body, f_tail = 1, 2
+#     # ----------------------------------------------------------------------------------
+#     # Applying the restrictions along "n"
+#     # ----------------------------------------------------------------------------------
+#     if not param["reduction"]:
+#         # ------------------------------------------------------------------------------
+#         # Using two PMs, the body PM is the first one and the second PM is used as upper
+#         # tail model. Using three PMS, the body PM is the center one.
+#         # ------------------------------------------------------------------------------
+#         f_body, f_tail = 1, 2
 
-        if param["no_param"][f_body] == 2:
-            fc_u2 = param["fun"][f_body].pdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
-            )
-            Fc_u2 = param["fun"][f_body].cdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
-            )
-        else:
-            fc_u2 = param["fun"][f_body].pdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
-            )
-            Fc_u2 = param["fun"][f_body].cdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
-            )
+#         if param["no_param"][f_body] == 2:
+#             fc_u2 = param["fun"][f_body].pdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
+#             )
+#             Fc_u2 = param["fun"][f_body].cdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
+#             )
+#         else:
+#             fc_u2 = param["fun"][f_body].pdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
+#             )
+#             Fc_u2 = param["fun"][f_body].cdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
+#             )
 
-        if param["no_param"][f_tail] == 2:
-            ft_u2 = -param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
-        else:
-            ft_u2 = -param["fun"][f_tail].pdf(
-                0, df_[f_tail]["s"], df_[f_tail]["l"], df_[f_tail]["e"]
-            )
+#         if param["no_param"][f_tail] == 2:
+#             ft_u2 = -param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
+#         else:
+#             ft_u2 = -param["fun"][f_tail].pdf(
+#                 0, df_[f_tail]["s"], df_[f_tail]["l"], df_[f_tail]["e"]
+#             )
 
-    constraints_ = np.sqrt(1 / len(ft_u2) * np.sum((ft_u2 * Fc_u2 - fc_u2) ** 2))
+#     constraints_ = np.sqrt(1 / len(ft_u2) * np.sum((ft_u2 * Fc_u2 - fc_u2) ** 2))
 
-    return constraints_
+#     return constraints_
 
 
 def fit(df_: pd.DataFrame, param_: dict, par0: list, mode_: list, ref: int):

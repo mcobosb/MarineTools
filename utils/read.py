@@ -99,8 +99,7 @@ def PdE(file_name: str, new: bool = False):
             header=None,
             engine="python",
         )
-        data.set_axis(
-            [
+        data.columns = [
                 "Hs",
                 "Tm",
                 "Tp",
@@ -113,10 +112,7 @@ def PdE(file_name: str, new: bool = False):
                 "Hsswell2",
                 "Tmswell2",
                 "DirMswell2",
-            ],
-            axis=1,
-            inplace=True,
-        )
+            ]
     else:
         with open(file_name) as file_:
             content = file_.readlines()

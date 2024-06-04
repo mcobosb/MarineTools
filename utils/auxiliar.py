@@ -64,7 +64,9 @@ def nonstationary_ecdf(
         if (variable == "Hs") | (variable == "Hm0"):
             pemp = np.array([0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.995])
 
-    res = pd.DataFrame(0, index=np.arange(0, 1, timestep), columns=pemp)
+    # res = pd.DataFrame(0, index=np.arange(0, 1, timestep), columns=pemp)
+    res = pd.DataFrame(0, index=data.n.unique(), columns=pemp)
+
     for i in res.index:
         if i >= (1 - wlen):
             final_offset = i + wlen - 1
