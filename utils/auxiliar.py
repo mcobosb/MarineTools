@@ -6,6 +6,7 @@ import pandas as pd
 import scipy.stats as st
 from marinetools.temporal import analysis
 from marinetools.temporal.fdist import statistical_fit as stf
+from marinetools.utils import save
 from matplotlib.dates import date2num, num2julian
 from scipy.interpolate import Rbf
 from scipy.optimize import minimize
@@ -31,6 +32,84 @@ def max_moving(data: pd.DataFrame, dur: int):
 
     results = pd.DataFrame(data.loc[id_], index=id_)
     return results
+
+
+def gaps(data, variables, fname="gaps", buoy=False):
+    """Creates a table with the main characteristics of gaps for variables
+
+    Args:
+        * data (pd.DataFrame): time series
+        * variables (string): with the variables where gap-info is required
+        * fname (string): name of the output file with the information table
+
+    Returns:
+        * tbl_gaps (pd.DataFrame): gaps info
+    """
+
+    if not isinstance(variables, list):
+        variables = [variables]
+
+    if not buoy:
+        columns_ = [
+            "Cadency (min)",
+            "Accuracy*",
+            "Period",
+            "No. years",
+            "Gaps (%)",
+            "Med. gap (hr)",
+            "Max. gap (d)",
+        ]
+    else:
+        columns_ = [
+            "Cadency (min)",
+            "Accuracy*",
+            "Period",
+            "No. years",
+            "Gaps (%)",
+            "Med. gap (hr)",
+            "Max. gap (d)",
+            "Quality data (%)",
+        ]
+
+    tbl_gaps = pd.DataFrame(
+        0,
+        columns=columns_,
+        index=variables,
+    )
+    tbl_gaps.index.name = "var"
+
+    for i in variables:
+        dt_nan = data[i].dropna()
+        if buoy:
+            quality = np.sum(data.loc[dt_nan.index, "Qc_e"] <= 2)
+
+        dt0 = (dt_nan.index[1:] - dt_nan.index[:-1]).total_seconds() / 3600
+        dt = dt0[dt0 > np.median(dt0) + 0.1].values
+        if dt.size == 0:
+            dt = 0
+        acc = st.mode(np.diff(dt_nan.sort_values().unique()))[0]
+
+        tbl_gaps.loc[i, "Cadency (min)"] = np.round(st.mode(dt0)[0]*60, decimals=2)
+        tbl_gaps.loc[i, "Accuracy*"] = np.round(acc, decimals=2)
+        tbl_gaps.loc[i, "Period"] = str(dt_nan.index[0]) + "-" + str(dt_nan.index[-1])
+        tbl_gaps.loc[i, "No. years"] = dt_nan.index[-1].year - dt_nan.index[0].year
+        tbl_gaps.loc[i, "Gaps (%)"] = np.round(
+            np.sum(dt) / data[i].shape[0] * 100, decimals=2
+        )
+        tbl_gaps.loc[i, "Med. gap (hr)"] = np.round(np.median(dt), decimals=2)
+        tbl_gaps.loc[i, "Max. gap (d)"] = np.round(np.max(dt)/24, decimals=2)
+
+        if buoy:
+            tbl_gaps.loc[i, "Quality data (%)"] = np.round(
+                quality / len(dt_nan) * 100, decimals=2
+            )
+
+    if not fname:
+        logger.info(tbl_gaps)
+    else:
+        save.to_xlsx(tbl_gaps, fname)
+
+    return tbl_gaps
 
 
 def nonstationary_ecdf(

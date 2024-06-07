@@ -42,7 +42,7 @@ def to_json(params: dict, file_name: str, npArraySerialization: bool = False):
         - None
     """
 
-    with open(f"{str(file_name)}.json", "w") as f:
+    with open(f"{str(file_name)}", "w") as f:
         if npArraySerialization:
             for key in params.keys():
                 if isinstance(params[key], dict):
