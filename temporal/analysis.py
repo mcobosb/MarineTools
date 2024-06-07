@@ -241,6 +241,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     elif parameters["non_stat_analysis"] & (
         not parameters["initial_parameters"]["make"]
     ):
+        df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
         # Make the non-stationary analysis
         logger.info("MARGINAL NON-STATIONARY FIT")
         logger.info(
@@ -585,7 +586,9 @@ def check_marginal_params(param: dict):
             param["initial_parameters"]["plot"] = False
     else:
         param["initial_parameters"] = {}
-        param["initial_parameters"]["make"] = True
+        param["initial_parameters"][
+            "make"
+        ] = False  # TODO: chequear que la opción con True funciona correctamente
         param["initial_parameters"]["mode"] = [param["basis_function"]["order"]]
         param["initial_parameters"]["par"] = []
         logger.info(
@@ -649,6 +652,9 @@ def check_marginal_params(param: dict):
                 )
             )
             k += 1
+
+    # if param["initial_parameters"]["make"]:
+    #     param["optimization"]["method"] = "dual_annealing"
 
     if not "bounds" in param["optimization"].keys():
         param["optimization"]["bounds"] = 0.5

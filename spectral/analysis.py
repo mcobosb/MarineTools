@@ -1,19 +1,18 @@
-import matplotlib.dates as mdates
-import matplotlib.pyplot as plt
+import importlib.util
+
 import numpy as np
 import pandas as pd
 import scipy.signal as scs
-from marinetools.utils import auxiliar, read, save
-from scipy.stats import chi2, mode
+from marinetools.utils import auxiliar, save
+from scipy.stats import chi2
 
 
-def lombscargle(data, variable, fname=None, max_period=None, nperiods=5, freq="H"):
+def lombscargle(data, variable, max_period=None, nperiods=5, freq="H"):
     """Computes the LombScargle Periodogram for uneven sampling
 
     Args:
         * data (pd.DataFrame): raw time series
         * variable (string): name of the variable
-        * fname (string, optional): name of the output file with the power spectral density and frequencies. Defaults to None.
         * max_period (float, optional): maximum value to analyze the diferent time periods. Defaults to None.
         * ref (float, optional): maximum value to look for the main time periods. Defaults to 1.1.
         * nperiods (int, optional): number of main periods. Defaults to 5.
@@ -86,7 +85,7 @@ def fft(data, variable, fname=None, freq="H", alpha=0.05):
     M = N / 2
     phi = (2 * (N - 1) - M / 2.0) / M
     chi_val = chi2.isf(q=1 - alpha / 2, df=phi)  # /2 for two-sided test
-    psd["significant"] = S > (var / N) * (chi_val / phi) / (S * f ** 2)
+    psd["significant"] = S > (var / N) * (chi_val / phi) / (S * f**2)
 
     return psd
 
@@ -103,19 +102,24 @@ def harmonic(data: pd.DataFrame, lat: float, file_name: str = None):
         - constituents (dict): the amplitude, phase and errors
     """
 
-    from utide import solve
+    lib_spec = importlib.util.find_spec("utide")
+    if lib_spec is not None:
+        from utide import solve
+    else:
+        raise ValueError(
+            "You will require utide library. You can downloaded it from https://pypi.org/project/UTide/"
+        )
 
     data.dropna(inplace=True)
-    time = mdates.date2num(data.index.to_pydatetime())
 
     constituents = solve(
-        time,
-        data.values,
+        data.index,
+        data,
         lat=lat,
         nodal=True,
         trend=False,
         method="ols",
-        conf_int="linear",
+        conf_int="MC",
         Rayleigh_min=0.95,
         verbose=False,
     )
@@ -138,11 +142,7 @@ def reconstruction_tidal_level(df: pd.DataFrame, tidalConstituents: dict):
     """
     from utide import reconstruct
 
-    try:
-        time = mdates.date2num(df.index.to_pydatetime())
-    except:
-        time = mdates.date2num(df.index)
-    tidalLevel = reconstruct(time, tidalConstituents)
+    tidalLevel = reconstruct(df.index, tidalConstituents)
 
     df["ma"] = tidalLevel["h"] - tidalConstituents["mean"]
     return df

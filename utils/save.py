@@ -140,7 +140,11 @@ def cwriter(file_out: str):
         - wbook (objects): excel book
         - wsheet (objects): excel sheet
     """
-    writer = pd.ExcelWriter(file_out, engine="xlsxwriter")
+    writer = pd.ExcelWriter(
+        file_out,
+        engine="xlsxwriter",
+        engine_kwargs={"options": {"nan_inf_to_errors": True}},
+    )
     df = pd.DataFrame([0])
     df.to_excel(writer, index=False, sheet_name="Sheet1", startrow=1, header=False)
     wsheet = writer.sheets["Sheet1"]
