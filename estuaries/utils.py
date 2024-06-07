@@ -1864,3 +1864,510 @@ def model_eta_u(x, t, constituents, params):
             eta_.loc[:, k] = eta_.loc[:, k] + eta(r, A0, ys, yx, t, nu) * params["h0"]
             u_.loc[:, k] = u_.loc[:, k] + u(r, A0, ys, yx, t, nu, k, m) * lambda_ / T
     return eta_, u_
+
+
+def run_average(x, num):
+    """Computed the moving average of the data
+
+    Args:
+        x: data
+        num: width of the moving window
+
+    Returns:
+        The averaged signal
+    """
+    cont = 0
+    av = x.copy()
+    for i in range(0, int(num / 2)):
+        av.iloc[i] = x.iloc[cont : i + int(num / 2)].mean()
+    for i in range(int(num / 2), len(x) - int(num / 2)):
+        av.iloc[i] = x.iloc[i - int(num / 2) : i + int(num / 2)].mean()
+    for i in range(len(x) - int(num / 2), len(x)):
+        av.iloc[i] = x.iloc[i - int(num / 2) :].mean()
+    return av
+
+
+def load_general_data(time_str, time_it):
+    x_edges = np.array([57.6, 47.1, 35.3, 26.2, 17.3, 0])
+    # coefs = x_edges[::-1]*(1.4)/57.6 - 0.4
+
+    coefs = np.array(
+        [
+            -0.25,
+            -0.7641 / 3.2608,
+            -0.3951 / 3.0339,
+            0.4737 / 0.8648,
+            0.5112 / 0.5248,
+            0.3056 / 0.2416,
+        ]
+    )[::-1]
+    aux_info = {
+        "coefs_stokes": coefs,
+        "lat": 36,
+        "ang_thalw": np.array(
+            [
+                80 * np.pi / 180,
+                20 * np.pi / 180,
+                70 * np.pi / 180,
+                80 * np.pi / 180,
+                100 * np.pi / 180,
+                90 * np.pi / 180,
+            ]
+        ),
+    }
+    # 80, 20, 70, 80, 30, 90
+    # 90, 20, 100, 40, 80, 10 , medido de la figura:
+    LOCX = {"xedg": x_edges, "xbox": np.diff(x_edges) / 2.0 + x_edges[0:-1]}
+    RHO = {"river": 999.7, "sea": None}
+
+    PATH = {}
+    PATH["root"] = os.path.join("..", "Data", time_str[0] + "-" + time_str[1])
+    PATH["pre"] = os.path.join(
+        "..", "Data", time_str[0] + "-" + time_str[1], "Pretreated"
+    )
+    PATH["box"] = os.path.join("..", "Data", time_str[0] + "-" + time_str[1], "Boxes")
+    PATH["results"] = os.path.join(
+        "..", "Data", time_str[0] + "-" + time_str[1], "Results"
+    )
+
+    return aux_info, LOCX, RHO, PATH
+
+
+def signif_freqs(nfile, path):
+    """Calcula las frecuencias significativas"""
+
+    pathf = os.path.join(path["res"], "Table2-Significant_frequencies.xlsx")
+    create_dir(path["signif_freqs"])
+    freqs = []
+    for i in nfile:
+        # if 'completo' in i:
+        n_wav = 24 * 5
+        delta_st = 1 / 8766 * (n_wav)
+        # else:
+        #     n_wav = 24
+        #     dst = 1/8766*(n_wav)
+        pathr = os.path.join(path["recons"], i + "_recons.pkl")
+        path0 = os.path.join(path["signif_freqs"], i + "_wvl_output.pkl")
+
+        try:
+            nivelr = pickle.load(open(pathr, "rb"))
+        except ImportError:
+            print("La senal {} aun no esta reconstruida.".format(i))
+
+        wvl, glbl, fft, sig95 = wavelets(nivelr.iloc[::n_wav, 0], delta_st, 0.95)
+        freqs.append(wvl_freq_ci(nivelr.iloc[::n_wav, 0], fft, glbl))
+        wvl_info = {"wvl": wvl, "glbl": glbl, "fft": fft, "sig95": sig95}
+        pickle.dump(wvl_info, open(path0, "wb"))
+
+    freqs = pd.DataFrame(freqs, index=nfile)
+    writer = pd.ExcelWriter(pathf)
+    freqs.to_excel(writer)
+    writer.save()
+    return
+
+
+def wavelets(data, delta_st, slevel):
+    """Wavelet analysis and the statistical approach suggested by Torrence and Compo (1998) using the wavelet module"""
+    std = data.std()  # Standard deviation
+    std2 = std**2  # var_iance
+    dat = (data.values - data.mean()) / std  # Calculatituding anomaly and normalizing
+
+    prop = {}
+    prop["no_measures"] = dat.size  # Number of measurements
+
+    prop["delta_j"] = 1 / 12  # Twelve sub-octaves per octaves
+    prop["s0"] = -1  # 2 * delta_t                    # Starting scale, here 6 months
+    prop["J"] = (
+        -1
+    )  # 7 / dj                     # Seven powers of two with dj sub-octaves
+    #  alpha = 0.0                       # Lag-1 autocorrelatitudion for white noise
+    try:
+        alpha, _, _ = wavelet.ar1(dat)  # Lag-1 autocorrelatitudion for red noise
+    except Warning:
+        # When the dataset is too short, or there is a strong trend, ar1 raises a
+        # warning. In this case, we assume a white noise background spectrum.
+        alpha = 1.0
+
+    prop["mother"] = wavelet.Morlet(6)  # Morlet mother wavelet with m=6
+
+    # The following routines perform the wavelet transform and significance
+    # analysis for the chosen data set.
+    wvl, fft = {}, {}
+    wvl["wvl"], scales, wvl["freqs"], wvl["coi"], fft["fft"], fft["freqs"] = (
+        wavelet.cwt(
+            dat, delta_st, prop["delta_j"], prop["s0"], prop["J"], prop["mother"]
+        )
+    )
+    # iwave = wavelet.icwt(wave, scales, dst, dj, mother)
+
+    # Normalized wavelet and Fourier power spectra
+    wvl["power"] = (np.abs(wvl["wvl"])) ** 2
+    fft["power"] = np.abs(fft["fft"]) ** 2
+    wvl["period"] = 1 / wvl["freqs"]
+
+    # Significance test. Where ratio power/sig95 > 1, power is significant.
+    fft["signif"], fft["theor"] = wavelet.significance(
+        1.0,
+        delta_st,
+        scales,
+        0,
+        alpha,
+        significance_level=slevel,
+        wavelet=prop["mother"],
+    )
+    sig95 = wvl["power"] / np.ones([1, prop["no_measures"]]) * fft["signif"][:, None]
+    # sig95 = wvl['power'] / sig95
+
+    # Power rectification as of Liu et al. (2007). TODO: confirm if significance
+    # test ratio should be calculatituded first.
+    # power /= scales[:, None]
+
+    # Calculatitudes the global wavelet spectrum and determines its significance level.
+    glbl = {}
+    glbl["power"] = wvl["power"].mean(axis=1)
+    dof = prop["no_measures"] - scales  # Correction for padding at edges
+    glbl["signif"], _ = wavelet.significance(
+        std2,
+        delta_st,
+        scales,
+        1,
+        alpha,
+        significance_level=slevel,
+        dof=dof,
+        wavelet=prop["mother"],
+    )
+
+    # Scale average between avg1 and avg2 periods and significance level
+    # sel = find((period >= avg1) & (period < avg2))
+    # Cdelta = mother.cdelta
+    # scale_avg = (scales * np.ones((N, 1))).transpose()
+    # As in Torrence and Compo (1998) equation 24
+    # scale_avg = power / scale_avg
+    # scale_avg = std2 * dj * dst / Cdelta * scale_avg[sel, :].sum(axis=0)
+    # scale_avg_signif, tmp = wavelet.significance(
+    #     std2, dst, scales, 2, alpha, significance_level=slevel, dof=[scales[sel[0]], scales[sel[-1]]], wavelet=mother)
+
+    return wvl, glbl, fft, sig95
+
+
+
+import os
+import pickle
+from datetime import timedelta
+
+import matplotlib.dates as dates
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+
+def run_average(var, num):
+    """Computed the moving average of the data
+
+    Args:
+        x: data
+        num: width of the moving window
+
+    Returns:
+        The averaged signal
+    """
+    cont = 0
+    average = var.copy()
+    for i in range(0, int(num / 2)):
+        average.iloc[i] = var.iloc[cont : i + int(num / 2)].mean()
+    for i in range(int(num / 2), len(var) - int(num / 2)):
+        average.iloc[i] = var.iloc[i - int(num / 2) : i + int(num / 2)].mean()
+    for i in range(len(var) - int(num / 2), len(var)):
+        average.iloc[i] = var.iloc[i - int(num / 2) :].mean()
+    return average
+
+
+def calc_rhoe(x, xboxes, B, h, rho, rhos, dt):
+    """Compute the density in every box
+
+    Args:
+        x: location of the box (km)
+        B: width at different locations
+        h: mean depth of every box (m)
+        rho: densities
+
+    Returns:
+        The density gradient (drhoe), the volumen of the boxes (Vol) and the mean width (Am)
+    """
+
+    # rho.index = rho.index.to_datetime(rho.index)
+    colnames = [str(i) + " km" for i in xboxes]
+    rhoe = pd.DataFrame(-1, index=rho.index, columns=colnames)
+    drhoe = pd.DataFrame(0, index=rho.index, columns=colnames)
+    rhos = rhos.tz_localize(None)
+    if any("0.0 km" in s for s in rho.columns):
+        rhoe["sea"] = rhos.loc[:, "sea"] * 0.25 + rho.loc[:, "0.0 km"] * 0.75
+    else:
+        rhoe["sea"] = rhos.loc[:, "sea"] * 0.25 + rho.loc[:, 0] * 0.75
+    drhoe["sea"] = np.append(0.0, np.diff(rhoe.loc[:, "sea"]) / dt)
+    Vol = pd.DataFrame(0, index=["hm3"], columns=colnames)
+    for i, j in enumerate(colnames):
+        print(i, j)
+        rho_c, Bc, xc, hc = (
+            rho.iloc[:, i + 1 : i + 3],
+            B[i : i + 2],
+            x[i : i + 2],
+            h.iloc[0, i : i + 2].values,
+        )
+        f1 = Bc * hc * rho_c
+        f2 = Bc * hc
+        rhoe.loc[:, j] = np.trapz(f1, xc, 2) / np.trapz(f2, xc)
+        drhoe.loc[1:, j] = np.diff(rhoe.loc[:, j]) / dt
+        drhoe.loc[drhoe.index[0], j] = drhoe.loc[drhoe.index[1], j]
+        Vol[j] = np.trapz(f2, xc[::-1] * 1000)
+
+    return rhoe, drhoe, Vol
+
+
+def calc_phi(rhoe, h, box):
+    """Compute the potential energy anomaly
+
+    Args:
+        rhoe: estimated density of every box
+        h: depth of boxes
+        rho_s: density of the salted water
+
+    Returns:
+        Averaged box potential energy anomaly
+    """
+
+    g = 9.806
+    # rhoe.insert(0, 'river', rhoe.iloc[:, 0]*0 + rhor)
+    if box:
+        Phi_m = pd.DataFrame(-1, index=rhoe.index, columns=rhoe.columns[:-1])
+        for i, j in enumerate(Phi_m.columns):
+            Phi_m.loc[:, j] = -g * h[i] * (rhoe.iloc[:, i] - rhoe.iloc[:, i + 1]) / 2
+    else:
+        Phi_m = pd.DataFrame(-1, index=rhoe.index, columns=rhoe.columns[1:-1])
+        for i, j in enumerate(Phi_m.columns):
+            Phi_m.loc[:, j] = (
+                -g * h.iloc[0, i] * (rhoe.iloc[:, i + 1] - rhoe.iloc[:, i + 2]) / 2
+            )
+
+    return Phi_m
+
+
+def spatial_interpolation(xedges, M, V):
+    """Computed the spatial interpolation of data to the mean and edge locations of every box
+
+    Args:
+        xboxes: new location of data query
+        M: tides
+        V: velocities at surface in the river axis
+        Rho: densities
+
+    Returns:
+        Three dataframes with tides, velocities at the surface and densities in the new points
+    """
+
+    nam_sl = ["Bonanza", "5.3 km", "26.8 km", "36.45 km", "51.8 km", "62.55 km"]
+    xsl = np.array([0, 5.3, 26.8, 36.45, 51.8, 62.55])
+    # nam_ctds = ['0 km', '17.3 km', '26.2 km', '35.3 km', '47.1 km', '57.6 km', '84.3 km']
+    # xctds = np.array([0, 17.3, 26.2, 35.3, 47.1, 57.6, 84.3])
+    nam_us = ["14.3 km", "20.8 km", "31.8 km", "39.8 km", "49.3 km", "63.8 km"]
+    xus = np.array([14.3, 20.8, 31.8, 39.8, 49.3, 63.8])
+    M, V = M.reindex(columns=nam_sl), V.reindex(columns=nam_us)
+    # Rho = Rho.reindex(columns=nam_ctds)
+
+    # colnames = [str(i)+' km' for i in xboxes]
+    colnames = [str(i) + " km" for i in xedges]
+    Mx, Vx = pd.DataFrame(-1, index=M.index, columns=colnames), pd.DataFrame(
+        -1, index=M.index, columns=colnames
+    )
+    for j in Vx.index:
+        Mx.loc[j, colnames] = np.interp(xedges, xsl, M.loc[j, nam_sl])
+        Vx.loc[j, colnames] = np.interp(xedges, xus, V.loc[j, nam_us])
+        # Rhox.iloc[j, :] = np.interp(xedges, xctds, Rho.iloc[j])
+
+    return Mx, Vx
+
+
+def tidal_average(signal, tm, ind_):
+    """Computed the tidal average of the signal
+
+    Args:
+        ref: tidal signal of reference
+        signal: series to interporlate
+
+    Returns:
+        The averaged signal
+        :rtype: object
+    """
+    if tm is None:
+        signalm = signal - np.mean(signal)
+        sg = np.sign(signalm.values)
+        ps = sg[0:-1] * sg[1:]
+
+        # Sign change
+        ind_ = np.where(ps < 0)[0]
+        sc = sg[ind_]
+
+        if sc[0] > 0:
+            ind_ = ind_[1:]
+
+        if np.remainder(len(ind_), 2) == 0:
+            ind_ = ind_[0:-1]
+
+        nid = len(ind_)
+        val_ = np.zeros(int((nid - 1) / 2.0))
+        tm = []
+        for j in range(0, nid - 1, 2):
+            val_[int(j / 2)] = np.max(
+                signal.iloc[ind_[j] : ind_[j + 2]], axis=0
+            ) - np.min(signal.iloc[ind_[j] : ind_[j + 2]], axis=0)
+            dt = timedelta(
+                seconds=(signal.index[ind_[j + 2]] - signal.index[ind_[j]]).seconds
+                / 2.0
+            )
+            tm.append(signal.index[ind_[j]] + dt)
+    else:
+        nid = len(ind_)
+        val_ = np.zeros([int((nid - 1) / 2.0), len(np.atleast_1d(signal.iloc[0]))])
+        for j in range(0, nid - 1, 2):
+            val_[int(j / 2), :] = np.mean(signal.iloc[ind_[j] : ind_[j + 2]])
+
+    average = pd.DataFrame(val_, index=tm, columns=signal.columns)
+    return average, ind_
+
+
+def setting_up_boxes(M_, V_, Rho_, Q_, Qs_, W_, D_, C_, loc, aux_info):
+    """Compute the main characteristics of the boxes. These characteristics are tidal-averaged and given in xboxes
+    location.
+
+    Args:
+        rho: density measured at each sensor
+        xboxes: location of the boxes (km)
+
+    """
+
+    B_box = 795.15 * np.exp(-loc["xbox"] / 65.5)
+    h_box = 5839.4 * np.exp(-loc["xbox"] / 60.26) / B_box
+
+    B_edges = 795.15 * np.exp(-loc["xedg"] / 65.5)
+    h_edges = pd.DataFrame(
+        [5839.4 * np.exp(-loc["xedg"] / 60.26) / B_edges],
+        index=["m"],
+        columns=Rho_.columns[::-1],
+    )
+    h_edges.rename(columns={"0 km": "0.0 km"}, inplace=True)
+    A_edges = B_edges * h_edges
+
+    Rho_["river"] = Rho_["river"]
+    if any(Rho_.columns) == "23.6 km":
+        Rho_.drop("23.6 km", 1, inplace=True)
+
+    Rho_.rename(columns={"0 km": "0.0 km"}, inplace=True)
+    Rhox = Rho_[Rho_.columns[::-1]].copy()
+    Mx, Vx = spatial_interpolation(loc["xedg"], M_, V_)
+    # Mx.insert(np.shape(Mx)[1], 'sea', M_['Bonanza'])
+    # Vx.insert(np.shape(Vx)[1], 'sea', Vx.iloc[:, -1])
+    rho["sea"] = rho["sea"].tz_localize(None)
+    Rhox = Rhox.tz_localize(None)
+    Rhox = Rhox.assign(sea=rho["sea"].values)
+
+    Ac, ind_ = tidal_average(M_["Bonanza"].to_frame(), None, 0)
+    Q, _ = tidal_average(Q_, Ac.index, ind_)
+    Q.rename(columns={"flow (m3/s)": "river"}, inplace=True)
+
+    # Rhox, _ = tidal_average(Rhox, Ac.index, ind_)
+    dt = 1.0
+    dt1 = np.asarray(
+        [(Rhox.index[i + 1] - Rhox.index[i]).seconds for i in range(len(Rhox) - 1)]
+    )
+    #    dt1 = np.asarray(dt1)
+    #    dt1 = (Rhox.index[1:] - Rhox.index[0:-1]).seconds
+    rhoe, drhoe, Vol = calc_rhoe(
+        loc["xedg"], loc["xbox"], B_edges, h_edges, Rhox, rho["sea"], dt1
+    )
+    phie = calc_phi(rhoe, h_box, True)
+    phi = calc_phi(Rhox, h_edges, False)
+
+    # Se multiplica por el ancho y se incluye el bombeo mareal
+    # ttes_adv = ttes_advectivos(phi, Mx, Vx, Ac, h_edges, B_edges, loc['xedg'], ind_, dt, aux_info['lat'])
+    # ttes_adv['stokes'] = ttes_adv['stokes']*(1+aux_info['coefs_stokes'])*B_edges
+
+    # ttes_dif = ttes_difusivos(Rhox, B_edges, loc['xedg'], rhoe.columns, Ac, ind_)
+
+    ter_fuente = terminos_fuente(
+        loc["xedg"], B_edges, C_, Vx, W_.to_frame(), Qs_, Ac, ind_, rhoe.columns
+    )
+
+    # promedios mareales
+    Mx, _ = tidal_average(Mx, Ac.index, ind_)
+    Vx, _ = tidal_average(Vx, Ac.index, ind_)
+    W, _ = tidal_average(W_.to_frame(), Ac.index, ind_)
+    D, _ = tidal_average(D_.to_frame(), Ac.index, ind_)
+    # Vl, _ = tidal_average(Vl, Ac.index, ind_)
+    Qs, _ = tidal_average(Qs_, Ac.index, ind_)
+    phi, _ = tidal_average(phie, Ac.index, ind_)
+    rhoe, _ = tidal_average(rhoe, Ac.index, ind_)
+    drhoe, _ = tidal_average(drhoe, Ac.index, ind_)
+    Rhox, _ = tidal_average(Rhox, Ac.index, ind_)
+    h_box = pd.DataFrame([h_box], index=["m"], columns=rhoe.columns[:-1])
+
+    var_names = [
+        "rhoe",
+        "drhoe",
+        "ttes_adv",
+        "ttes_dif",
+        "Phi",
+        "Q",
+        "Qs",
+        "Ac",
+        "Vol",
+        "h_box",
+        "h_edges",
+        "Mx",
+        "Vx",
+        "W",
+        "D",
+        "Rhox",
+        "A_edges",
+    ]
+    saving_data(
+        [
+            rhoe,
+            drhoe,
+            ttes_adv,
+            ttes_dif,
+            phie,
+            Q,
+            Qs,
+            Ac,
+            Vol,
+            h_box,
+            h_edges,
+            Mx,
+            Vx,
+            W,
+            D,
+            Rhox,
+            A_edges,
+        ],
+        var_names,
+    )
+    saving_data([ind_], ["ind_"], path, "npy")
+    hs = {"box": h_box, "edges": h_edges}
+
+    return (
+        rhoe,
+        Rhox,
+        drhoe,
+        ttes_adv,
+        ttes_dif,
+        phi,
+        Q,
+        Qs,
+        Ac,
+        Vol,
+        A_edges,
+        hs["edges"],
+        Vx,
+        W,
+        D,
+    )
