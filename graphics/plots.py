@@ -1064,7 +1064,7 @@ def nonstationary_cdf(
                             label=str(j),
                         )
                 else:
-                    if param["circular"]:
+                    if param["type"] == "circular":
                         if emp:
                             ax.plot(
                                 res[param["var"]].index,
@@ -1119,7 +1119,7 @@ def nonstationary_cdf(
                     ncol=len(pemp),
                     title="Percentiles",
                 )
-                if param["circular"]:
+                if param["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
             else:
                 ax.set_position([box.x0, box.y0, box.width * 0.6, box.height])
@@ -1130,7 +1130,7 @@ def nonstationary_cdf(
                     ncol=2,
                     title="Percentiles",
                 )
-                if param["circular"]:
+                if param["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
         else:
             ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -1398,7 +1398,7 @@ def nonstat_cdf_ensemble(
                         label=str(j),
                     )
                 else:
-                    if param[variable][models[0]]["circular"]:
+                    if param[variable][models[0]]["type"] == "circular":
                         ax.plot(
                             res[param[variable][models[0]]["var"]].index,
                             np.rad2deg(res[param[variable][models[0]]["var"]].values),
@@ -1433,7 +1433,7 @@ def nonstat_cdf_ensemble(
                     ncol=len(pemp),
                     title="Percentiles",
                 )
-                if param[variable][models[0]]["circular"]:
+                if param[variable][models[0]]["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
             else:
                 ax.set_position([box.x0, box.y0, box.width * 0.6, box.height])
@@ -1444,7 +1444,7 @@ def nonstat_cdf_ensemble(
                     ncol=2,
                     title="Percentiles",
                 )
-                if param[variable][models[0]]["circular"]:
+                if param[variable][models[0]]["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
         else:
             ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])

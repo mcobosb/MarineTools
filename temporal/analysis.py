@@ -142,12 +142,21 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
             "Dataset has negative values. Check that the chosen distribution functions adequately fit negative values."
         )
 
+    if parameters["type"] == "circular":
+        # Transform angles to radian
+        df = np.deg2rad(df)
+        # Compute the percentile of change between probability models
+        ecdf = auxiliar.ecdf(df, parameters["var"], no_perc=1000)
+        # Smooth the ecdf
+        ecdf["soft"] = auxiliar.smooth_1d(ecdf[parameters["var"]], 100)
+        # Compute the difference
+        ecdf["dif"] = ecdf["soft"].diff()
+        # Obtain the index of the max
+        max_ = auxiliar.max_moving(ecdf["dif"], 250)
+        parameters["ws_ps"] = [max_.index[0]]
+
     # Check that the input dictionary is well defined
     parameters = check_marginal_params(parameters)
-
-    # Transform angles to radian
-    if parameters["circular"]:
-        df = np.deg2rad(df)
 
     # Normalized the data using one of the normalization method if it is required
     if parameters["transform"]["make"]:
@@ -169,7 +178,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
             #         parameters["ws_ps"][ind_] = val_ / (parameters["range"] / 3)
 
     # Bound the variable with some reference values
-    if parameters["circular"]:
+    if parameters["type"] == "circular":
         parameters["minimax"] = [0, 2 * np.pi]
     else:
         parameters["minimax"] = [
@@ -337,6 +346,7 @@ def check_marginal_params(param: dict):
     param["scipy"] = {}
     param["reduction"] = False
     param["no_tot_param"] = 0
+    param["constraints"] = True
 
     logger.info("USER OPTIONS:")
     k = 1
@@ -434,6 +444,7 @@ def check_marginal_params(param: dict):
                 if param["fun"][i] == "wrap_norm":
                     param["fun"][i] = stf.wrap_norm()
                     param["scipy"][i] = False
+                    param["constraints"] = False
                 else:
                     param["fun"][i] = getattr(st, param["fun"][i])
                     param["scipy"][i] = True
@@ -547,7 +558,8 @@ def check_marginal_params(param: dict):
             param["initial_parameters"]["par"] = []
             logger.info(
                 str(k)
-                + " - Parameters of optimization not given. It will be applied the Fourier initialization.")
+                + " - Parameters of optimization not given. It will be applied the Fourier initialization."
+            )
             k += 1
         else:
             logger.info(
@@ -587,31 +599,33 @@ def check_marginal_params(param: dict):
     if not "optimization" in param.keys():
         param["optimization"] = {}
         param["optimization"]["method"] = "SLSQP"
-        param["optimization"]["eps"] = 1e-7
+        param["optimization"]["eps"] = 1e-3
         param["optimization"]["maxiter"] = 1e2
-        param["optimization"]["ftol"] = 1e-4
+        param["optimization"]["ftol"] = 1e-3
         if param["initial_parameters"]["make"]:
             logger.info(
                 str(k)
-                + " - Optimization method more adequate using the Fourier Series initialization is {}.".format("dual_annealing")
+                + " - Optimization method more adequate using the Fourier Series initialization is {}.".format(
+                    "dual_annealing"
+                )
             )
             param["optimization"]["method"] = "dual_annealing"
 
-        k += 1
+            k += 1
     else:
         if param["optimization"] is None:
             param["optimization"] = {}
             param["optimization"]["method"] = "SLSQP"
-            param["optimization"]["eps"] = 1e-7
+            param["optimization"]["eps"] = 1e-3
             param["optimization"]["maxiter"] = 1e2
-            param["optimization"]["ftol"] = 1e-4
+            param["optimization"]["ftol"] = 1e-3
         else:
             if not "eps" in param["optimization"].keys():
-                param["optimization"]["eps"] = 1e-7
+                param["optimization"]["eps"] = 1e-3
             if not "maxiter" in param["optimization"].keys():
                 param["optimization"]["maxiter"] = 1e2
             if not "ftol" in param["optimization"].keys():
-                param["optimization"]["ftol"] = 1e-4
+                param["optimization"]["ftol"] = 1e-3
 
     # if not "method" in param["optimization"]:
     #     param["optimization"]["method"] = "SLSQP"
@@ -648,8 +662,6 @@ def check_marginal_params(param: dict):
                 )
             )
             k += 1
-
-    param["constraints"] = True
 
     if "piecewise" in param:
         if not param["reduction"]:
@@ -713,15 +725,10 @@ def check_marginal_params(param: dict):
 
     # Check if the variable is circular or linear
     if param["type"] == "circular":
-        param["circular"] = True
-        logger.info("{} - Type 'circular' is set to True.".format(str(k)))
+        logger.info("{} - Type is set to 'circular'.".format(str(k)))
     else:
-        logger.info("{} - Type 'linear' is set to True.".format(str(k)))
-        param["circular"] = False
+        logger.info("{} - Type is set to 'linear'.".format(str(k)))
     k += 1
-
-    if param["circular"]:
-        param["constraints"] = False
 
     if (any(np.asarray(param["ws_ps"]) > 1) or any(np.asarray(param["ws_ps"]) < 0)) & (
         not param["piecewise"]
@@ -958,84 +965,6 @@ def look_models(data, variable, percentiles=[1], fname="models_out", funcs="natu
     save.to_xlsx(results, fname)
 
     return results
-
-
-def gaps(data, variables, fname="gaps", buoy=False):
-    """Creates a table with the main characteristics of gaps for variables
-
-    Args:
-        * data (pd.DataFrame): time series
-        * variables (string): with the variables where gap-info is required
-        * fname (string): name of the output file with the information table
-
-    Returns:
-        * tbl_gaps (pd.DataFrame): gaps info
-    """
-
-    if not isinstance(variables, list):
-        variables = [variables]
-
-    if not buoy:
-        columns_ = [
-            "Cadency (hr)",
-            "Accuracy*",
-            "Period",
-            "No. years",
-            "% gaps",
-            "Med. gap (hr)",
-            "Max. gap (hr)",
-        ]
-    else:
-        columns_ = [
-            "Cadency (hr)",
-            "Accuracy*",
-            "Period",
-            "No. years",
-            "Gaps (%)",
-            "Med. gap (hr)",
-            "Max. gap (hr)",
-            "Quality data (%)",
-        ]
-
-    tbl_gaps = pd.DataFrame(
-        0,
-        columns=columns_,
-        index=variables,
-    )
-    tbl_gaps.index.name = "var"
-
-    for i in variables:
-        dt_nan = data[i].dropna()
-        if buoy:
-            quality = np.sum(data.loc[dt_nan.index, "Qc_e"] <= 2)
-
-        dt0 = (dt_nan.index[1:] - dt_nan.index[:-1]).total_seconds() / 3600
-        dt = dt0[dt0 > np.median(dt0) + 0.1].values
-        if dt.size == 0:
-            dt = 0
-        acc = st.mode(np.diff(dt_nan.sort_values().unique()))[0]
-
-        tbl_gaps.loc[i, "Cadency (hr)"] = np.round(st.mode(dt0)[0] * 60, decimals=2)
-        tbl_gaps.loc[i, "Accuracy*"] = np.round(acc, decimals=2)
-        tbl_gaps.loc[i, "Period"] = str(dt_nan.index[0]) + "-" + str(dt_nan.index[-1])
-        tbl_gaps.loc[i, "No. years"] = dt_nan.index[-1].year - dt_nan.index[0].year
-        tbl_gaps.loc[i, "Gaps (%)"] = np.round(
-            np.sum(dt) / np.float(data[i].shape[0]) * 100, decimals=2
-        )
-        tbl_gaps.loc[i, "Med. gap (hr)"] = np.round(np.median(dt), decimals=2)
-        tbl_gaps.loc[i, "Max. gap (hr)"] = np.round(np.max(dt), decimals=2)
-
-        if buoy:
-            tbl_gaps.loc[i, "Quality data (%)"] = np.round(
-                quality / len(dt_nan) * 100, decimals=2
-            )
-
-    if not fname:
-        logger.info(tbl_gaps)
-    else:
-        save.to_xlsx(tbl_gaps, fname)
-
-    return tbl_gaps
 
 
 def storm_series(data, cols, info):
@@ -1336,7 +1265,7 @@ def dependencies(df: pd.DataFrame, param: dict):
 
     # Transform angles into radians
     for var_ in param["TD"]["vars"]:
-        if param[var_]["circular"]:
+        if param[var_]["type"] == "circular":
             df[var_] = np.deg2rad(df[var_])
 
     cdf_ = pd.DataFrame(index=df.index, columns=param["TD"]["vars"])
