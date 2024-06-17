@@ -241,6 +241,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     elif parameters["non_stat_analysis"] & (
         not parameters["initial_parameters"]["make"]
     ):
+        # Make the stationary analysis first
         df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
         # Make the non-stationary analysis
         logger.info("MARGINAL NON-STATIONARY FIT")
@@ -255,7 +256,8 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         )
         for i in range(1, parameters["no_fun"]):
             term += " - " + str(parameters["fun"][i].name)
-        term += " - genpareto " * parameters["reduction"]
+        if parameters["reduction"]:
+            term += " - genpareto " * parameters["reduction"]
         term += " probability model"
         logger.info(term)
         logger.info(
@@ -264,8 +266,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         logger.info(
             "=============================================================================="
         )
-        # Make the stationary analysis first
-        df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
+
         # Make the non-stationary analysis
         parameters = stf.nonst_analysis(df, parameters)
 
@@ -317,7 +318,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     parameters["status"] = "Distribution models fitted succesfully"
 
     # Final computational time
-    logger.info("End fitting process")
+    logger.info("End of the fitting process")
     logger.info("--- %s seconds ---" % (time.time() - start_time))
 
     # Save the parameters in the file if "file_name" is given in params
@@ -584,20 +585,21 @@ def check_marginal_params(param: dict):
             k += 1
         if not "plot" in param["initial_parameters"].keys():
             param["initial_parameters"]["plot"] = False
-    else:
-        param["initial_parameters"] = {}
-        param["initial_parameters"][
-            "make"
-        ] = False  # TODO: chequear que la opción con True funciona correctamente
-        param["initial_parameters"]["mode"] = [param["basis_function"]["order"]]
-        param["initial_parameters"]["par"] = []
-        logger.info(
-            str(k)
-            + " - Initial parameters will be computed using series expansion of the given order ({}).".format(
-                param["basis_function"]["order"]
-            )
-        )
-        k += 1
+    # TODO: chequear lo siguiente, no tiene mucho sentido
+    # else:
+    #     param["initial_parameters"] = {}
+    #     param["initial_parameters"][
+    #         "make"
+    #     ] = False  # TODO: chequear que la opción con True funciona correctamente
+    #     param["initial_parameters"]["mode"] = [param["basis_function"]["order"]]
+    #     param["initial_parameters"]["par"] = []
+    #     logger.info(
+    #         str(k)
+    #         + " - Initial parameters will be computed using series expansion of the given order ({}).".format(
+    #             param["basis_function"]["order"]
+    #         )
+    #     )
+    #     k += 1
 
     if not "optimization" in param.keys():
         param["optimization"] = {}
@@ -657,7 +659,10 @@ def check_marginal_params(param: dict):
     #     param["optimization"]["method"] = "dual_annealing"
 
     if not "bounds" in param["optimization"].keys():
-        param["optimization"]["bounds"] = 0.5
+        if param["type"] == "circular":
+            param["optimization"]["bounds"] = 0.1
+        else:
+            param["optimization"]["bounds"] = 0.5
     else:
         if not isinstance(param["optimization"]["bounds"], (float, int, bool)):
             raise ValueError("The bounds should be a float, integer or False.")

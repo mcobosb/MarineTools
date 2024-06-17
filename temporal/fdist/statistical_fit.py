@@ -1638,15 +1638,13 @@ def ppf(df: pd.DataFrame, param: dict):
         df (pd.DataFrame): inverse of the cdf
     """
 
-    t_expans = params_t_expansion(param["initial_parameters"]["mode"], param, df["n"])
+    t_expans = params_t_expansion(param["mode"], param, df["n"])
 
     if param["reduction"]:
         # ------------------------------------------------------------------------------
         # If reduction is possible
         # ------------------------------------------------------------------------------
-        df, esc = get_params(
-            df, param, param["par"], param["initial_parameters"]["mode"], t_expans
-        )
+        df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
 
         # Choose data below esc[1]
         idu1 = df["prob"] < esc[1]
@@ -1684,9 +1682,7 @@ def ppf(df: pd.DataFrame, param: dict):
             # --------------------------------------------------------------------------
             # If only one probability model is given
             # --------------------------------------------------------------------------
-            df, esc = get_params(
-                df, param, param["par"], param["initial_parameters"]["mode"], t_expans
-            )
+            df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
             if param["no_param"][0] == 2:
                 df[0][param["var"]] = param["fun"][0].ppf(
                     df[0]["prob"], df[0]["s"], df[0]["l"]
@@ -1724,7 +1720,6 @@ def ppf(df: pd.DataFrame, param: dict):
             dfn = np.sort(df["n"].unique())
 
             for i, j in enumerate(df.index):  # Seeking every n (dates)
-                print(i)
                 posn = np.argmin(np.abs(df["n"][j] - dfn))
                 posj = np.argmin(np.abs(df["prob"][j] - cdfs[posn, :].T))
                 posi[i] = posj
@@ -1748,15 +1743,13 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
         * prob (pd.DataFrame): the non-excedence probability
     """
 
-    t_expans = params_t_expansion(param["initial_parameters"]["mode"], param, df["n"])
+    t_expans = params_t_expansion(param["mode"], param, df["n"])
     if not any(df.columns == "prob"):
         df["prob"] = 0
 
     if param["reduction"]:
         # Reduction allowed
-        df, esc = get_params(
-            df, param, param["par"], param["initial_parameters"]["mode"], t_expans
-        )
+        df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
 
         if not "data" in df.columns:
             df.rename(columns={param["var"]: "data"}, inplace=True)
@@ -1802,9 +1795,7 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
         # Not reduction applied
         if param["no_fun"] == 1:
             # One PM
-            df, esc = get_params(
-                df, param, param["par"], param["initial_parameters"]["mode"], t_expans
-            )
+            df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
 
             if param["no_param"][0] == 2:
                 df[0]["prob"] = param["fun"][0].cdf(
@@ -1823,16 +1814,14 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
                 else:
                     data = np.linspace(param["minimax"][0], param["minimax"][1], 1000)
                 dfn = np.sort(df["n"].unique())
-                t_expans = params_t_expansion(
-                    param["initial_parameters"]["mode"], param, dfn
-                )
+                t_expans = params_t_expansion(param["mode"], param, dfn)
                 aux = pd.DataFrame(-1, index=dfn, columns=["s"])
                 aux["n"] = df["n"]
                 dff, esc = get_params(
                     aux,
                     param,
                     param["par"],
-                    param["initial_parameters"]["mode"],
+                    param["mode"],
                     t_expans,
                 )
                 cdf_ = np.zeros([len(dfn), len(data)])
@@ -2007,7 +1996,7 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
                     df,
                     param,
                     param["par"],
-                    param["initial_parameters"]["mode"],
+                    param["mode"],
                     t_expans,
                 )
                 df[0]["prob"] = 0
