@@ -1776,7 +1776,7 @@ def param_(xref, lambda_, x, x0, xb, B0, Bb):
 
 
 def eta(r, A0, ys, yx, t, nu):
-    k = np.sqrt(1 - 1j * r / (2 * np.pi))
+    k = np.sqrt(1 - 1j * r[0] / (2 * np.pi))
     zx = np.real(
         A0
         * ((k * yx) / (k * ys[0])) ** (1 - nu)
@@ -1794,7 +1794,7 @@ def eta(r, A0, ys, yx, t, nu):
 
 
 def u(r, A0, ys, yx, t, nu, x, m):
-    k = np.sqrt(1 - 1j * r / (2 * np.pi))
+    k = np.sqrt(1 - 1j * r[0] / (2 * np.pi))
     ux = np.real(
         -1j
         * A0
@@ -1813,7 +1813,7 @@ def u(r, A0, ys, yx, t, nu, x, m):
     return ux
 
 
-def model_eta_u(x, t, constituents, params):
+def model_eta_u(x, t, tidal_params, params, constituents):
     """Computing the free surface elevation and mean water current using the methodology
     given in Prandtl and Rahman (1980)
 
@@ -1836,12 +1836,12 @@ def model_eta_u(x, t, constituents, params):
         0.0, index=t, columns=x
     )
 
-    for const in constituents.keys():
+    for const in constituents:
         T0, A0, p0, r = (
-            constituents[const]["T"],
-            constituents[const]["A"],
-            constituents[const]["p"],
-            constituents[const]["r"],
+            tidal_params["T"][const],
+            tidal_params["A0"][const],
+            tidal_params["p0"][const],
+            tidal_params["r"][const],
         )
         g, T = 9.81, T0 * 3600
         lambda_ = np.sqrt(g * params["h0"]) * T
@@ -1849,20 +1849,25 @@ def model_eta_u(x, t, constituents, params):
         A0, p0 = A0 / params["h0"], p0 * np.pi / 180.0
         A0 = A0 * np.exp(-1j * p0)
 
-        for k in x:
+        time = eta_.index - eta_.index[0]
+        time = np.array([(j.seconds / 3600 + j.days * 24) / T0 for j in time])
+        for j, t in enumerate(eta_.index):
             ys, yx, nu, m = param_(
                 params["xref"],
                 lambda_,
-                k,
+                x,
                 params["x0"],
                 params["xb"],
                 params["B0"],
                 params["Bb"],
             )
-            t = eta_.index - eta_.index[0]
-            t = np.array([(j.seconds / 3600 + j.days * 24) / T0 for j in t])
-            eta_.loc[:, k] = eta_.loc[:, k] + eta(r, A0, ys, yx, t, nu) * params["h0"]
-            u_.loc[:, k] = u_.loc[:, k] + u(r, A0, ys, yx, t, nu, k, m) * lambda_ / T
+
+            eta_.loc[t, :] = (
+                eta_.loc[t, :] + eta(r, A0, ys, yx, time[j], nu) * params["h0"]
+            )
+            u_.loc[t, :] = (
+                u_.loc[t, :] + u(r, A0, ys, yx, time[j], nu, x, m) * lambda_ / T
+            )
     return eta_, u_
 
 
@@ -2050,7 +2055,6 @@ def wavelets(data, delta_st, slevel):
     return wvl, glbl, fft, sig95
 
 
-
 import os
 import pickle
 from datetime import timedelta
@@ -2059,27 +2063,6 @@ import matplotlib.dates as dates
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-
-
-def run_average(var, num):
-    """Computed the moving average of the data
-
-    Args:
-        x: data
-        num: width of the moving window
-
-    Returns:
-        The averaged signal
-    """
-    cont = 0
-    average = var.copy()
-    for i in range(0, int(num / 2)):
-        average.iloc[i] = var.iloc[cont : i + int(num / 2)].mean()
-    for i in range(int(num / 2), len(var) - int(num / 2)):
-        average.iloc[i] = var.iloc[i - int(num / 2) : i + int(num / 2)].mean()
-    for i in range(len(var) - int(num / 2), len(var)):
-        average.iloc[i] = var.iloc[i - int(num / 2) :].mean()
-    return average
 
 
 def calc_rhoe(x, xboxes, B, h, rho, rhos, dt):
