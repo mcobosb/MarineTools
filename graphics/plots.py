@@ -346,7 +346,7 @@ def plot_cdf(
         )
     else:
         emp = auxiliar.ecdf(data, var)
-        ax.plot(emp[var], emp["prob"], label=label)
+        ax.plot(emp[var].values, emp.index, label=label)
 
     if legend:
         ax.legend()
@@ -1544,45 +1544,48 @@ def nonstat_cdf_ensemble(
     return ax
 
 
-def soujourn(data_1, data_2, variable, threshold, ax=None, case="above", fname=None):
+def soujourn(data, variable, info, case="above", ax=None, fname=None):
+    """Plots the distribution function of soujourn above or below a given threshold
+
+    Args:
+        data (_type_): _description_
+        variable (_type_): _description_
+        info (_type_): _description_
+            time_step = "1H"
+            min_duration = 3
+            inter_time = 3
+            threshold = threshold
+            interpolation = True
+        ax (_type_, optional): _description_. Defaults to None.
+        case (str, optional): _description_. Defaults to "above".
+        fname (_type_, optional): _description_. Defaults to None.
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     from marinetools.temporal.analysis import storm_properties
 
-    """Plots the distribution function of soujourn above or below a given threshold"""
+    info = storm_properties(data, variable, info)
+
     if case == "above":
-        info = {}
-        info["time_step"] = "1H"
-        info["min_duration"] = 3
-        info["inter_time"] = 3
-        info["threshold"] = threshold
-        info["interpolation"] = True
-        info_1 = storm_properties(data_1, variable, info)
-        info_2 = storm_properties(data_2, variable, info)
         var_ = "dur_storm"
     elif case == "below":
-        info = {}
-        info["time_step"] = "1H"
-        info["min_duration"] = 3
-        info["inter_time"] = 3
-        info["threshold"] = threshold
-        info["interpolation"] = True
-        info_1 = storm_properties(data_1, variable, info)
-        info_2 = storm_properties(data_2, variable, info)
         var_ = "dur_calms"
     else:
         raise ValueError("Case options are above or below. {} given.".format(case))
 
     _, ax = handle_axis(ax)
     ax = plot_cdf(
-        info_1,
+        info,
         var_,
         ax=ax,
         file_name="to_axes",
         seaborn=False,
         legend=False,
         label=None,
-    )
-    ax = plot_cdf(
-        info_2, var_, ax=ax, file_name=None, seaborn=False, legend=False, label=None
     )
 
     show(fname)
