@@ -404,7 +404,7 @@ def interp(base, data, dist=100, method="linear", fill_values=np.nan):
             int((data.y[1] - data.y[0]) / dist),
         )
         x, y = np.meshgrid(
-            np.linspace(data.x[0] + dist / 2, cordataners.x[1] - dist / 2, nx),
+            np.linspace(data.x[0] + dist / 2, data.x[1] - dist / 2, nx),
             np.linspace(data.y[0] + dist / 2, data.y[1] - dist / 2, ny),
         )
     else:
@@ -821,6 +821,9 @@ def bounded_voronoi(towers, bounding_box):
     vor = sp.spatial.Voronoi(points)
 
     vor.filtered_points = points_center  # creates a new attibute for points that form the diagram within the region
+    # Asegúrate de que todas las filas tengan la misma longitud
+    # max_length = max(len(row) for row in vor.regions)
+    # vor.regions = [row + [0] * (max_length - len(row)) for row in vor.regions]
     vor.filtered_regions = np.array(vor.regions)[
         vor.point_region[: vor.npoints // 5]
     ]  # grabs the first fifth of the regions, which are the original regions
