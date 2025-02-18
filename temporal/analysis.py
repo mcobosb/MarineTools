@@ -1628,18 +1628,42 @@ def ensemble_dt(models: dict, percentiles="equally"):
 
 
 def iso_rmse(
-    data: pd.DataFrame, variable: str, param: dict = None, daysWindowsLength: int = 14
+    reference: pd.DataFrame,
+    variable: str,
+    param: dict = None,
+    data: pd.DataFrame = None,
+    daysWindowsLength: int = 14,
 ):
-    if not isinstance(data, pd.DataFrame):
-        data = data.to_frame()
+    """Compute the rmse of the iso-probability lines of the non-stationary cdf
 
-    T = 1
+    Args:
+        reference (pd.DataFrame): _description_
+        variable (str): _description_
+        param (dict, optional): _description_. Defaults to None.
+        data (pd.DataFrama, optional):
+        daysWindowsLength (int, optional): _description_. Defaults to 14.
+
+    Returns:
+        _type_: _description_
+    """
+
     if param is not None:
         if param["basis_period"] is not None:
             T = np.max(param["basis_period"])
+        emp_non_st = False
+    else:
+        emp_non_st = True
+        T = 1
+        data["n"] = np.fmod(
+            (data.index - datetime.datetime(data.index[0].year, 1, 1, 0))
+            .total_seconds()
+            .values
+            / (T * 365.25 * 24 * 3600),
+            1,
+        )
 
-    data["n"] = np.fmod(
-        (data.index - datetime.datetime(data.index[0].year, 1, 1, 0))
+    reference["n"] = np.fmod(
+        (reference.index - datetime.datetime(reference.index[0].year, 1, 1, 0))
         .total_seconds()
         .values
         / (T * 365.25 * 24 * 3600),
@@ -1649,52 +1673,86 @@ def iso_rmse(
     dt = 366
     n = np.linspace(0, 1, dt)
     xp, pemp = auxiliar.nonstationary_ecdf(
-        data,
+        reference,
         variable,
         wlen=daysWindowsLength / (365.25 * T),
     )
 
-    for j, i in enumerate(pemp):
-        if isinstance(param, dict):
-            if param["transform"]["plot"]:
-                xp[i], _ = stf.transform(xp[[i]], param)
-                xp[i] -= param["transform"]["min"]
+    # A empirical model
+    if emp_non_st:
+        data_check, _ = auxiliar.nonstationary_ecdf(
+            data,
+            variable,
+            wlen=daysWindowsLength / (365.25 * T),
+        )
+    else:
+        # A theoretical model
+        # ----------------------------------------------------------------------------------
+        for j, i in enumerate(pemp):
+            if not emp_non_st:
+                if param["transform"]["plot"]:
+                    xp[i], _ = stf.transform(xp[[i]], param)
+                    xp[i] -= param["transform"]["min"]
+                    if "scale" in param:
+                        xp[i] = xp[i] / param["scale"]
+
+                param = auxiliar.str2fun(param, None)
+        data_check = pd.DataFrame(0, index=n, columns=pemp)
+
+        for i, j in enumerate(pemp):
+            df = pd.DataFrame(np.ones(dt) * pemp[i], index=n, columns=["prob"])
+            df["n"] = n
+            if (param["non_stat_analysis"] == True) | (param["no_fun"] > 1):
+                res = stf.ppf(df, param)
+            else:
+                res = pd.DataFrame(
+                    param["fun"][0].ppf(df["prob"], *param["par"]),
+                    index=df.index,
+                    columns=[variable],
+                )
+
+            # Transformed timeserie
+            if (not param["transform"]["plot"]) & param["transform"]["make"]:
                 if "scale" in param:
-                    xp[i] = xp[i] / param["scale"]
+                    res[param["var"]] = res[param["var"]] * param["scale"]
 
-    param = auxiliar.str2fun(param, None)
-    theoretical = pd.DataFrame(0, index=n, columns=pemp)
-
-    for i, j in enumerate(pemp):
-        df = pd.DataFrame(np.ones(dt) * pemp[i], index=n, columns=["prob"])
-        df["n"] = n
-        if (param["non_stat_analysis"] == True) | (param["no_fun"] > 1):
-            res = stf.ppf(df, param)
-        else:
-            res = pd.DataFrame(
-                param["fun"][0].ppf(df["prob"], *param["par"]),
-                index=df.index,
-                columns=[variable],
-            )
-
-        # Transformed timeserie
-        if (not param["transform"]["plot"]) & param["transform"]["make"]:
-            if "scale" in param:
+                res[param["var"]] = res[param["var"]] + param["transform"]["min"]
+                res[param["var"]] = stf.inverse_transform(res[[param["var"]]], param)
+            elif ("scale" in param) & (not param["transform"]["plot"]):
                 res[param["var"]] = res[param["var"]] * param["scale"]
 
-            res[param["var"]] = res[param["var"]] + param["transform"]["min"]
-            res[param["var"]] = stf.inverse_transform(res[[param["var"]]], param)
-        elif ("scale" in param) & (not param["transform"]["plot"]):
-            res[param["var"]] = res[param["var"]] * param["scale"]
+            data_check[j] = res[param["var"]]
 
-        theoretical[j] = res[param["var"]]
-
+    # ----------------------------------------------------------------------------------
     rmse = pd.DataFrame(-1, index=pemp, columns=["rmse"])
     for j in pemp:
-        rmse.loc[j] = auxiliar.rmse(xp[j], theoretical[j])
+        rmse.loc[j] = auxiliar.rmse(xp[j], data_check[j])
 
     return rmse
 
+
+def confidence_bands(rmse, n, confidence_level):
+    """_summary_
+
+    Args:
+        rmse (_type_): número de puntos de datos
+        n (_type_): RMSE de tu modelo
+        confidence_level (_type_): nivel de confianza
+    """
+
+
+    # Paso 2: Calcular el error estándar de los residuos
+    ser = rmse / np.sqrt(n)
+
+    # Paso 4: Calcular el valor crítico de la distribución t de Student
+    degrees_of_freedom = n - 1
+    alpha = 1 - confidence_level
+    t_critical = st.t.ppf(1 - alpha/2, degrees_of_freedom)
+
+    # Paso 5: Calcular el margen de error
+    margin_of_error = t_critical * ser
+
+    return margin_of_error
 
 def generate_outputfilename(parameters):
     """_summary_
