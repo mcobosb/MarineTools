@@ -378,6 +378,7 @@ def _hydraulic_parameters(dbt, db, iTime, predictor=True):
     A = np.tile(dbt["A"][:, iTime].values, [db.sizes["z"], 1]).T
 
     # Compute the index where the given area is found
+    # TODO: Check the following incorrect formula
     indexes_db = np.argmin(np.abs(A - db["A"].values), axis=1, keepdims=True)
 
     mask = indexes_db + 1 >= db.sizes["z"]
@@ -972,7 +973,7 @@ def _TVD_MacCormack(dbt, df, dConfig, iTime):
     imask = np.where(a1med < 0)[0]
     imask = np.asarray([i for i in imask if i != dConfig["nx"] - 2])
     if len(imask) != 0:
-        r1med[imask] = alfa2med[imask + 1] / alfa2med[imask]
+        r1med[imask] = alfa1med[imask + 1] / alfa1med[imask]
 
     mask = a1med == 0
     r1med[mask] = 1
