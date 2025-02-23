@@ -99,24 +99,20 @@ def PdE(file_name: str, new: bool = False):
             header=None,
             engine="python",
         )
-        data.set_axis(
-            [
-                "Hs",
-                "Tm",
-                "Tp",
-                "DirM",
-                "Hswind",
-                "DirMwind",
-                "Hsswell1",
-                "Tmswell1",
-                "DirMswell1",
-                "Hsswell2",
-                "Tmswell2",
-                "DirMswell2",
-            ],
-            axis=1,
-            inplace=True,
-        )
+        data.columns = [
+            "Hs",
+            "Tm",
+            "Tp",
+            "DirM",
+            "Hswind",
+            "DirMwind",
+            "Hsswell1",
+            "Tmswell1",
+            "DirMswell1",
+            "Hsswell2",
+            "Tmswell2",
+            "DirMswell2",
+        ]
     else:
         with open(file_name) as file_:
             content = file_.readlines()
@@ -148,6 +144,7 @@ def csv(
     date_format=None,
     sep: str = ",",
     encoding: str = "utf-8",
+    index_col: list = [0],
     non_natural_date: bool = False,
     no_data_values: int = -999,
 ):
@@ -168,34 +165,34 @@ def csv(
     """
     from loguru import logger
 
-    if not any(item in str(file_name) for item in ["dat", "txt", "csv", "zip"]):
-        filename = str(file_name) + ".csv"
-    else:
-        filename = str(file_name)
+    # if not any(item in str(file_name) for item in ["dat", "txt", "csv", "zip"]):
+    #     raise ValueError("Not extension filename = str(file_name) + ".csv"
+    # else:
+    #     filename = str(file_name)
 
     if non_natural_date:
         ts = False
 
     if not ts:
-        if "zip" in filename:
+        if "zip" in file_name:
             data = pd.read_csv(
-                filename,
+                file_name,
                 sep=sep,
-                index_col=[0],
+                index_col=index_col,
                 compression="zip",
                 engine="python",
             )
         else:
             try:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
-                    index_col=[0],
+                    index_col=index_col,
                     encoding=encoding,
                 )
             except:
                 data = pd.read_csv(
-                    filename, sep=sep, engine="python", encoding=encoding
+                    file_name, sep=sep, engine="python", encoding=encoding
                 )
 
         if non_natural_date:
@@ -207,29 +204,29 @@ def csv(
             ]
             data.index = index_
     else:
-        if "zip" in filename:
+        if "zip" in file_name:
             try:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
                     parse_dates=[0],
-                    index_col=[0],
+                    index_col=index_col,
                     compression="zip",
                     date_format=date_format,
                 )
             except:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
                     parse_dates=[0],
-                    index_col=[0],
+                    index_col=index_col,
                     date_format=date_format,
                 )
-                logger.info("{}, It is not a zip file.".format(str(filename) + ".csv"))
+                logger.info("{}, It is not a zip file.".format(str(file_name) + ".csv"))
         else:
             try:
                 data = pd.read_csv(
-                    filename,
+                    file_name,
                     sep=sep,
                     parse_dates=["date"],
                     index_col=["date"],
@@ -238,17 +235,17 @@ def csv(
             except:
                 if date_format == None:
                     data = pd.read_csv(
-                        filename,
+                        file_name,
                         sep=sep,
                         parse_dates=[0],
-                        index_col=[0],
+                        index_col=index_col,
                     )
                 else:
                     data = pd.read_csv(
-                        filename,
+                        file_name,
                         sep=sep,
                         parse_dates=[0],
-                        index_col=[0],
+                        index_col=index_col,
                         date_format=date_format,
                     )
     data = data[data != no_data_values]
@@ -274,8 +271,8 @@ def npy(file_name: str):
     return data
 
 
-def xlsx(file_name: str, sheet_name: str = 0):
-    """Reads xlsx files
+def xlsx(file_name: str, sheet_name: str = 0, names: str = None):
+    """Reads xls or xlsx files
 
     Args:
         - file_name (string): filename of data
@@ -284,8 +281,8 @@ def xlsx(file_name: str, sheet_name: str = 0):
     Returns:
         - data (pd.DataFrame): the read data
     """
-    xlsx = pd.ExcelFile(file_name + ".xlsx")
-    data = pd.read_excel(xlsx, sheet_name=sheet_name, index_col=0)
+    xlsx = pd.ExcelFile(file_name)
+    data = pd.read_excel(xlsx, sheet_name=sheet_name, index_col=0, names=names)
     return data
 
 
@@ -312,7 +309,7 @@ def netcdf(
 
     # data = Dataset(fname + '.nc', mode='r', format='NETCDF4')
     if not glob:
-        data = xr.open_dataset(file_name + ".nc")
+        data = xr.open_dataset(file_name)
     else:
         try:
             data = xr.open_mfdataset(file_name)
@@ -342,9 +339,9 @@ def netcdf(
                 data = data.loc[0]
                 data.index = pd.to_datetime(data.index)
             except:
-                print("Data has not bounds.")
+                pass
 
-            nearestLonLat = data.longitude.values[0], data.latitude.values[0]
+            nearestLatLon = data.latitude.values[0], data.longitude.values[0]
         else:
             data = data.sel(
                 depth=0.494025,
@@ -352,12 +349,13 @@ def netcdf(
                 latitude=latlon[1],
                 method="nearest",
             ).to_dataframe()
-        print("Nearest lon-lat point: ", nearestLonLat)
+        # print("Nearest lat-lon point: ", nearestLatLon)
         if variables is not None:
             if len(variables) == 1:
                 data = data[[variables]]
             else:
                 data = data[variables]
+            data = (data, nearestLatLon)
         # data.index = data.to_datetimeindex(unsafe=False)
     else:
         # TODO: hacer el nearest en otra funcion
@@ -411,6 +409,7 @@ def asci_tiff(fname, type_="row"):
 
     data = rasterio.open(fname)
     z = data.read()[0, :, :]
+    profile = data.profile
 
     # All rows and columns
     cols, rows = np.meshgrid(np.arange(z.shape[1]), np.arange(z.shape[0]))
@@ -435,7 +434,7 @@ def asci_tiff(fname, type_="row"):
         dout = {"x": x, "y": y, "z": z}
         # dout["z"][z == data._nodatavals[0]] = np.nan
 
-    return dout
+    return dout, profile
 
 
 def kmz(fname, joint=False):
@@ -593,48 +592,38 @@ def shp(fname: str, joint: bool = False, var_: str = None):
                 xy.append(np.asarray(shape_file["geometry"][k].coords.xy).T)
             elif type_ == "Polygon":
                 xy.append(np.asarray(shape_file["geometry"][k].exterior.coords.xy).T)
-            elif type_ == "Multipoints":
-                xy.append(
-                    np.asarray(
-                        shape_file.apply(
-                            lambda x: [y for y in x["geometry"].exterior.coords], axis=0
-                        )[k].T
-                    )
-                )
+            elif type_ == "MultiPoint":
+                xy.append(np.asarray(shape_file["geometry"][k].centroid.coords.xy).T)
             elif type_ == "LineString":
                 xy.append(np.asarray(shape_file["geometry"][k].coords.xy).T)
-                # xy.append(
-                #     np.asarray(
-                #         shape_file.apply(
-                #             lambda x: [y for y in x["geometry"][k].coords.xy], axis=1
-                #         )
-                #     )
-                # )
-                if var_ is not None:
-                    extra_var.append(shape_file[var_][k])
-
             elif type_ == "MultiLineString":
                 for linestring_ in shape_file["geometry"][k]:
                     xy.append(np.asarray(linestring_.coords.xy).T)
 
             elif type_ == "MultiPolygon":
-                for k_, polygon_ in enumerate(shape_file["geometry"][k]):
-                    if not polygon_ == None:
-                        if polygon_ == "Polygon":
-                            xy.append(np.asarray(polygon_.exterior.coords.xy).T)
-                        elif polygon_.geom_type == "linearRing":
-                            xy.append(
-                                np.asarray(
-                                    shape_file.apply(
-                                        lambda x: [y for y in polygon_.coords],
-                                        axis=1,
-                                    )[k_]
+                try:
+                    for k_, polygon_ in enumerate(shape_file["geometry"][k]):
+                        if not polygon_ == None:
+                            if polygon_ == "Polygon":
+                                xy.append(np.asarray(polygon_.exterior.coords.xy).T)
+                            elif polygon_.geom_type == "linearRing":
+                                xy.append(
+                                    np.asarray(
+                                        shape_file.apply(
+                                            lambda x: [y for y in polygon_.coords],
+                                            axis=1,
+                                        )[k_]
+                                    )
                                 )
-                            )
+                except:
+                    pass
             else:
                 raise ValueError(
                     "Shapefile can not be readed with methods coords or exterior.coords or exterior.coords.xy"
                 )
+
+            if var_ is not None:
+                extra_var.append(shape_file[var_][k])
 
             element += 1
         k += 1
@@ -647,7 +636,7 @@ def shp(fname: str, joint: bool = False, var_: str = None):
                         [
                             element[:, 0],
                             element[:, 1],
-                            np.ones(len(element)) * extra_var[k],
+                            extra_var[k],
                         ]
                     ).T,
                     columns=["x", "y", var_],

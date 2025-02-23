@@ -8,11 +8,9 @@ import numpy as np
 import pandas as pd
 import scipy.stats as st
 from marinetools.graphics.utils import handle_axis, labels, show
-from marinetools.temporal.analysis import storm_properties
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.temporal.fdist.copula import Copula
 from marinetools.utils import auxiliar
-from matplotlib.colors import LogNorm
 from pandas.plotting import register_matplotlib_converters
 
 """This file is part of MarineTools.
@@ -348,7 +346,7 @@ def plot_cdf(
         )
     else:
         emp = auxiliar.ecdf(data, var)
-        ax.plot(emp[var], emp["prob"], label=label)
+        ax.plot(emp[var].values, emp.index, label=label)
 
     if legend:
         ax.legend()
@@ -845,7 +843,7 @@ def bivariate_pdf(
         * ax (matplotlib.axis): axis for the plot or None
     """
 
-    fig, ax = handle_axis(ax, col_plots=2)
+    _, ax = handle_axis(ax, col_plots=2)
 
     if bins is None:
         bins = [25, 25]
@@ -922,13 +920,13 @@ def nonstationary_cdf(
     log: bool = False,
     file_name: str = None,
     label: str = None,
-    lst="-", 
+    lst="-",
     legend: bool = True,
     legend_loc: str = "right",
     title: str = None,
     date_axis: bool = False,
     pemp: list = None,
-    emp: bool = True
+    emp: bool = True,
 ):
     """Plots the time variation of given percentiles of data and theoretical function if provided
 
@@ -948,7 +946,7 @@ def nonstationary_cdf(
         * title: draw the title
         * date_axis: create a secondary axis with time
         * pemp: list with percentiles to be plotted
-        * emp (bool, optional): if True plot the empirical nonst distribution 
+        * emp (bool, optional): if True plot the empirical nonst distribution
 
     Returns:
         * ax (matplotlib.axis): axis for the plot or None
@@ -1058,15 +1056,15 @@ def nonstationary_cdf(
                             label=str(j),
                         )
                     else:
-                        ax.semilogy(
-                            res[param["var"]].index,
+                        ax.plot(
+                            res[param["var"]].index.values,
                             res[param["var"]].values,
                             ls=lst,
                             lw=2,
                             label=str(j),
                         )
                 else:
-                    if param["circular"]:
+                    if param["type"] == "circular":
                         if emp:
                             ax.plot(
                                 res[param["var"]].index,
@@ -1121,7 +1119,7 @@ def nonstationary_cdf(
                     ncol=len(pemp),
                     title="Percentiles",
                 )
-                if param["circular"]:
+                if param["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
             else:
                 ax.set_position([box.x0, box.y0, box.width * 0.6, box.height])
@@ -1132,7 +1130,7 @@ def nonstationary_cdf(
                     ncol=2,
                     title="Percentiles",
                 )
-                if param["circular"]:
+                if param["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
         else:
             ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -1400,7 +1398,7 @@ def nonstat_cdf_ensemble(
                         label=str(j),
                     )
                 else:
-                    if param[variable][models[0]]["circular"]:
+                    if param[variable][models[0]]["type"] == "circular":
                         ax.plot(
                             res[param[variable][models[0]]["var"]].index,
                             np.rad2deg(res[param[variable][models[0]]["var"]].values),
@@ -1435,7 +1433,7 @@ def nonstat_cdf_ensemble(
                     ncol=len(pemp),
                     title="Percentiles",
                 )
-                if param[variable][models[0]]["circular"]:
+                if param[variable][models[0]]["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
             else:
                 ax.set_position([box.x0, box.y0, box.width * 0.6, box.height])
@@ -1446,7 +1444,7 @@ def nonstat_cdf_ensemble(
                     ncol=2,
                     title="Percentiles",
                 )
-                if param[variable][models[0]]["circular"]:
+                if param[variable][models[0]]["type"] == "circular":
                     ax.set_yticks([0, 90, 180, 270, 360])
         else:
             ax.set_position([box.x0, box.y0, box.width * 0.8, box.height])
@@ -1546,43 +1544,48 @@ def nonstat_cdf_ensemble(
     return ax
 
 
-def soujourn(data_1, data_2, variable, threshold, ax=None, case="above", fname=None):
-    """Plots the distribution function of soujourn above or below a given threshold"""
+def soujourn(data, variable, info, case="above", ax=None, fname=None):
+    """Plots the distribution function of soujourn above or below a given threshold
+
+    Args:
+        data (_type_): _description_
+        variable (_type_): _description_
+        info (_type_): _description_
+            time_step = "1H"
+            min_duration = 3
+            inter_time = 3
+            threshold = threshold
+            interpolation = True
+        ax (_type_, optional): _description_. Defaults to None.
+        case (str, optional): _description_. Defaults to "above".
+        fname (_type_, optional): _description_. Defaults to None.
+
+    Raises:
+        ValueError: _description_
+
+    Returns:
+        _type_: _description_
+    """
+    from marinetools.temporal.analysis import storm_properties
+
+    info = storm_properties(data, variable, info)
+
     if case == "above":
-        info = {}
-        info["time_step"] = "1H"
-        info["min_duration"] = 3
-        info["inter_time"] = 3
-        info["threshold"] = threshold
-        info["interpolation"] = True
-        info_1 = storm_properties(data_1, variable, info)
-        info_2 = storm_properties(data_2, variable, info)
         var_ = "dur_storm"
     elif case == "below":
-        info = {}
-        info["time_step"] = "1H"
-        info["min_duration"] = 3
-        info["inter_time"] = 3
-        info["threshold"] = threshold
-        info["interpolation"] = True
-        info_1 = storm_properties(data_1, variable, info)
-        info_2 = storm_properties(data_2, variable, info)
         var_ = "dur_calms"
     else:
         raise ValueError("Case options are above or below. {} given.".format(case))
 
     _, ax = handle_axis(ax)
     ax = plot_cdf(
-        info_1,
+        info,
         var_,
         ax=ax,
         file_name="to_axes",
         seaborn=False,
         legend=False,
         label=None,
-    )
-    ax = plot_cdf(
-        info_2, var_, ax=ax, file_name=None, seaborn=False, legend=False, label=None
     )
 
     show(fname)
@@ -1769,6 +1772,7 @@ def wrose(
     fig_title: str = None,
     var_name: str = "Wave height (m)",
     bins: list = [0, 0.25, 0.5, 1.5, 2.5],
+    calm_limit=0,
     file_name: str = None,
 ):
     """Draws a wind or wave rose
@@ -1799,6 +1803,7 @@ def wrose(
         normed=True,
         cmap=plt.cm.viridis,
         opening=1,
+        calm_limit=calm_limit,
         bins=bins,
     )
     fig.subplots_adjust(top=0.8)
@@ -1839,7 +1844,7 @@ def seasonalbox(data, variable, fname=None):
     _, ax = plt.subplots()
     box, median = [], []
     box = [data.loc[data.index.month == i].values[:, 0] for i in range(1, 13)]
-    median = [data.loc[data.index.month == i].median() for i in range(1, 13)]
+    median = data.groupby(data.index.month).median()
 
     bp = plt.boxplot(
         box,

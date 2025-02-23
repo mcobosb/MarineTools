@@ -1,3 +1,5 @@
+import os
+import sys
 import warnings
 
 import numpy as np
@@ -7,6 +9,9 @@ from loguru import logger
 from marinetools.utils import auxiliar, read, save
 from scipy.integrate import quad
 from scipy.optimize import differential_evolution, dual_annealing, minimize, shgo
+
+logger.remove()
+logger.add(sys.stderr, format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {message}")
 
 warnings.filterwarnings("ignore")
 
@@ -56,7 +61,7 @@ def st_analysis(df: pd.DataFrame, param: dict):
         thresholds = np.hstack(
             [df[param["var"]].min(), param["ws_ps"], df[param["var"]].max()]
         )
-        # df = emp(df, percentiles, param["var"])
+        # df, _ = auxiliar.nonstationary_ecdf(df, percentiles, param["var"])
         for i in param["fun"].keys():
             filtro = (df[param["var"]] >= thresholds[i]) & (
                 df[param["var"]] <= thresholds[i + 1]
@@ -81,51 +86,63 @@ def st_analysis(df: pd.DataFrame, param: dict):
             ]
             par0 = np.hstack([par1, par2, par0]).tolist()
 
-            bnds = [[] for _ in range(len(par0))]
-            if param["optimization"]["bounds"] is False:
-                bnds = None
-            else:
-                for i in range(0, len(par0)):
-                    if i >= param["no_tot_param"]:
-                        bnds[i] = [
-                            par0[i] - param["optimization"]["bounds"],
-                            par0[i] + param["optimization"]["bounds"],
-                        ]
-                    else:
-                        bnds[i] = [
-                            0,
-                            par0[i] + param["optimization"]["bounds"],
-                        ]
+            # bnds = [[] for _ in range(len(par0))]
+            # if param["optimization"]["bounds"] is False:
+            #     bnds = None
+            # else:
+            #     for i in range(0, len(par0)):
+            #         # if i >= param["no_tot_param"]:
+            #         bnds[i] = [
+            #             par0[i] - param["optimization"]["bounds"],
+            #             par0[i] + param["optimization"]["bounds"],
+            #         ]
+            #         # else:
+            #         #     bnds[i] = [
+            #         #         0,
+            #         #         par0[i] + param["optimization"]["bounds"],
+            #         #     ]
 
-                bnds = tuple(bnds)
+            #     bnds = tuple(bnds)
 
-            t_expans = params_t_expansion([0, 0, 0], param, df)
-            res = minimize(
-                nllf,
-                par0.copy(),
-                args=(df, [0, 0, 0], param, t_expans),
-                method="SLSQP",
-                bounds=bnds,
-                options={
-                    # "ftol": param["optimization"]["ftol"],
-                    "eps": 1e-2,  # param["optimization"]["eps"],
-                    # "maxiter": param["optimization"]["maxiter"],
-                },
-            )
-            par0 = res.x.tolist()
+            # t_expans = params_t_expansion([0, 0, 0], param, df)
+            # res = minimize(
+            #     nllf,
+            #     par0.copy(),
+            #     args=(df, [0, 0, 0], param, t_expans),
+            #     method="SLSQP",
+            #     bounds=bnds,
+            #     options={
+            #         # "ftol": param["optimization"]["ftol"],
+            #         "eps": 1e-2,  # param["optimization"]["eps"],
+            #         # "maxiter": param["optimization"]["maxiter"],
+            #     },
+            # )
+            # par0 = res.x.tolist()
         else:
             if param["no_fun"] == 1:
                 par0 = param["fun"][0].fit(df[param["var"]])
             else:
-                percentiles = np.hstack([0, param["ws_ps"], 1])
-                df = emp(df, percentiles, param["var"], circular=param["circular"])
-
+                # percentiles = np.hstack([0, param["ws_ps"], 1])
+                res, _ = auxiliar.nonstationary_ecdf(
+                    df, param["var"], pemp=param["ws_ps"]
+                )
+                if len(param["ws_ps"]) == 1:
+                    res.columns = ["u1"]
+                    df["u1"] = 0.0
+                    for n_ in res.index:
+                        df.loc[df.n == n_, "u1"] = res.loc[n_, "u1"]
+                elif len(param["ws_ps"]) == 2:
+                    # res.columns = ["u1", "u2"]
+                    df["u1"], df["u2"] = 0, 0
+                    for n_ in res.index:
+                        df.loc[df.n == n_, "u1"] = res.loc[n_, "u1"]
+                        df.loc[df.n == n_, "u2"] = res.loc[n_, "u2"]
                 if param["no_fun"] == 2:
                     ibody = df[param["var"]] <= df["u1"]
                     iutail = df[param["var"]] > df["u1"]
 
                     parb = param["fun"][0].fit(df.loc[ibody, param["var"]])
-                    if not param["circular"]:
+                    if not param["type"] == "circular":
                         part = param["fun"][1].fit(
                             df.loc[iutail, param["var"]] - df.loc[iutail, "u1"]
                         )
@@ -145,7 +162,7 @@ def st_analysis(df: pd.DataFrame, param: dict):
                     )
                     iutail = df[param["var"]] > df["u2"]
 
-                    if not param["circular"]:
+                    if not param["type"] == "circular":
                         parl = param["fun"][0].fit(
                             df.loc[iltail, "u1"] - df.loc[iltail, param["var"]]
                         )
@@ -153,7 +170,7 @@ def st_analysis(df: pd.DataFrame, param: dict):
                         parl = param["fun"][0].fit(df.loc[iltail, param["var"]])
                     parb = param["fun"][1].fit(df.loc[ibody, param["var"]])
 
-                    if not param["circular"]:
+                    if not param["type"] == "circular":
                         part = param["fun"][2].fit(
                             df.loc[iutail, param["var"]] - df.loc[iutail, "u2"]
                         )
@@ -164,53 +181,24 @@ def st_analysis(df: pd.DataFrame, param: dict):
                     if not param["fix_percentiles"]:
                         par0 = np.hstack([par0, st.norm.ppf(param["ws_ps"])])
 
-    if param[
-        "guess"
-    ]:  # checked outside because some previous parameters are required later
-        logger.info("Initial guess computed: " + str(par0))
-        par0 = param["p0"]
-        logger.info("Initial guess given: " + str(par0))
-    else:
-        logger.info("Initial guess computed: " + str(par0))
+    # if param[
+    #     "guess"
+    # ]:  # checked outside because some previous parameters are required later
+    #     logger.info("Initial guess computed: " + str(par0))
+    #     par0 = param["p0"]
+    #     logger.info("Initial guess given: " + str(par0))
+    # else:
+    #     logger.info("Initial guess computed: " + str(par0))
     mode = np.zeros(param["no_fun"], dtype=int).tolist()
 
-    if (not param["guess"]) & (any(np.abs(par0) > 20)):
-        warnings.warn(
-            "Parameters of the initial guess are high. The convergence is not ensured."
-            + "It is recommended: (i) modify the percentiles, or (ii) increase the"
-            + "bounds."
-        )
+    # if (not param["guess"]) & (any(np.abs(par0) > 20)):
+    #     warnings.warn(
+    #         "Parameters of the initial guess are high. The convergence is not ensured."
+    #         + "It is recommended: (i) modify the percentiles, or (ii) increase the"
+    #         + "bounds."
+    #     )
 
     return df, par0, mode
-
-
-def best_params(data: pd.DataFrame, bins: int, distrib: str, tail: bool = False):
-    """Computes the best parameters of a simple probability model attending to the rmse of the pdf
-
-    Args:
-        * data (pd.DataFrame): raw time series
-        * bins (int): no. of bins for the histogram
-        * distrib (string): name of the probability model
-        * tail (bool, optional): If it is fit a tail or not. Defaults to False.
-
-    Returns:
-        * params (list): the estimated parameters
-    """
-
-    dif_, sser = 1e2, 1e3
-    nlen = int(len(data) / 200)
-
-    data = data.sort_values(ascending=True).values
-    while (dif_ > 1) & (sser > 30) & (0.95 * nlen < len(data)):
-        results = fit_(data, bins, distrib)
-        sse, params = results[0], results[1:]
-        dif_, sser = np.abs(sser - sse), sse
-
-        if tail:
-            data = data[int(nlen / 4) :]
-        else:
-            data = data[nlen:-nlen]
-    return params
 
 
 def fit_(data: pd.DataFrame, bins: int, model: str):
@@ -256,29 +244,29 @@ def nonst_analysis(df: pd.DataFrame, param: dict):
     """
 
     par, bic, nllf = nonst_fit(df, param)
-    if not any(param["mode"]):
+    if not param["initial_parameters"]["make"]:
         if param["basis_function"]["order"] > 1:
             if param["bic"]:
                 mode = min(bic, key=bic.get)
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
             else:
                 mode = min(nllf, key=nllf.get)
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
         elif param["basis_function"]["order"] == 1:
             if param["bic"]:
                 mode = list(bic.keys())[0]
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
             else:
                 mode = list(nllf.keys())[0]
                 param["par"] = list(par[mode])
-                param["mode"] = [int(i) for i in mode]
+                param["initial_parameters"]["mode"] = [int(i) for i in mode]
         else:
             mode = np.zeros(param["no_fun"], dtype=int)
             param["par"] = list(par)
-            param["mode"] = [int(i) for i in mode]
+            param["initial_parameters"]["mode"] = [int(i) for i in mode]
 
         all_ = []
         for i in bic.keys():
@@ -287,7 +275,7 @@ def nonst_analysis(df: pd.DataFrame, param: dict):
         param["all"] = all_
     else:
         param["par"] = list(par)
-        param["all"] = [str(param["mode"]), bic, list(par)]
+        param["all"] = [str(param["initial_parameters"]["mode"]), bic, list(par)]
 
     return param
 
@@ -308,7 +296,7 @@ def nonst_fit(df: pd.DataFrame, param: dict):
     # ----------------------------------------------------------------------------------
     # Check if a mode is not given. Run the general analysis
     # ----------------------------------------------------------------------------------
-    if not any(param["mode"]):
+    if not param["initial_parameters"]["make"]:
 
         if param["basis_function"]["order"] >= 1:
             par, nllf, mode = fourier_expansion(df, par, param)
@@ -323,11 +311,103 @@ def nonst_fit(df: pd.DataFrame, param: dict):
         # ------------------------------------------------------------------------------
         # Check if a mode is given. Optimize a specific mode (and parameters)
         # ------------------------------------------------------------------------------
+        if not any(param["initial_parameters"]["par"]):
+            param = fourier_initialization(df, param)
         nllf = 1e9
         par, nllf, _ = fourier_expansion(df, param["par"], param)
         bic = 2 * nllf + np.log(len(df[param["var"]])) * (len(par))
 
     return par, bic, nllf
+
+
+def fourier_initialization(df, param):
+    """Initialize the parameters for trigonometric expansion at a given order. Makes
+    fast the optimization
+
+    Args:
+        df (_type_): _description_
+        param (_type_): _description_
+    """
+    # To be added
+    timestep = 1 / 365.25
+    wlen = 14 / 365.25  # ventana mensual
+    time_ = np.arange(0, 1, timestep)
+    logger.info("Initializing parameters through Fourier Series on a moving window.")
+
+    for index_, i in enumerate(time_):
+        # print(index_, len(time_))
+        if i >= (1 - wlen):
+            final_offset = i + wlen - 1
+            mask = ((df["n"] >= i - wlen) & (df["n"] <= i + wlen)) | (
+                df["n"] <= final_offset
+            )
+        elif i <= wlen:
+            initial_offset = i - wlen
+            mask = ((df["n"] >= i - wlen) & (df["n"] <= i + wlen)) | (
+                df["n"] >= 1 + initial_offset
+            )
+        else:
+            mask = (df["n"] >= i - wlen) & (df["n"] <= i + wlen)
+
+        _, par_, _ = st_analysis(df.loc[mask], param)
+        if index_ == 0:
+            res = pd.DataFrame(0, index=time_, columns=np.arange(len(par_)))
+
+        res.loc[i, :] = par_
+    # import matplotlib.pyplot as plt
+    # plt.figure()
+    # plt.plot(res)
+    # plt.show()
+    parameters = []
+    for var_ in range(param["no_tot_param"]):
+        # Compute the Fast Fourier Transform
+        mean_ = np.mean(res.loc[:, var_])
+        coefs = np.fft.fft(res.loc[:, var_] - mean_)
+
+        N = len(res.loc[:, var_])
+        # Choose one side of the spectra
+        cn = np.ravel(coefs[0 : N // 2] / N)
+
+        an, bn = 2 * np.real(cn), -2 * np.imag(cn)
+
+        an = an[: param["initial_parameters"]["mode"][0] + 1]
+        bn = bn[: param["initial_parameters"]["mode"][0] + 1]
+
+        parameters = np.hstack([parameters, mean_])
+        for order_k in range(param["initial_parameters"]["mode"][0]):
+            parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
+
+        if param["initial_parameters"]["plot"]:
+            # ---- Checking function ----
+            t = res.index.values
+            cosine_funtion = np.zeros(len(t)) + np.mean(res.loc[:, var_])
+            for i, ii in enumerate(an):
+                cosine_funtion += an[i] * np.cos(2 * np.pi * i * t) + bn[i] * np.sin(
+                    2 * np.pi * i * t
+                )
+
+            import matplotlib.pyplot as plt
+
+            plt.figure()
+            plt.plot(t, cosine_funtion, label=str(var_))
+            plt.plot(res[var_])
+            plt.legend()
+            plt.show()
+
+    if param["reduction"]:
+        # Adding the weights
+        parameters = np.hstack([parameters, res.iloc[0, -2], res.iloc[0, -1]])
+        param["initial_parameters"]["mode"] = (
+            param["initial_parameters"]["mode"][0],
+            param["initial_parameters"]["mode"][0],
+        )
+
+    param["initial_parameters"]["par"] = parameters.tolist()
+    param["par"] = param["initial_parameters"]["par"]
+    param["mode"] = param["initial_parameters"]["mode"]
+    # logger.info("Initial parameters obtained.")
+    # logger.info(param["par"])
+    return param
 
 
 def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
@@ -344,7 +424,7 @@ def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
         * mode (dict): parameter of the first order
     """
     nllf = {}
-    if not any(param["mode"]):
+    if not param["initial_parameters"]["make"]:
         mode = []
         if param["no_fun"] == 1:
             for i in range(1, param["basis_function"]["order"] + 1):
@@ -407,7 +487,7 @@ def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
                     data, param, par0[imode], imode, nllf[comp_]
                 )
     else:
-        mode = [tuple(param["mode"])]
+        mode = [tuple(param["initial_parameters"]["mode"])]
         logger.info("Mode " + str(mode[0]) + " non-stationary")
         par, nllf = fit(data, param, par, mode[0], 1e10)
 
@@ -596,65 +676,65 @@ def matching_lower_bound(par: dict):
     return constraints_
 
 
-def matching_upper_bound(par: dict):
-    """Matching conditions between two probability models (PMs). Upper refers to the
-    low tail-body PMs for fitting three PMs.
+# def matching_upper_bound(par: dict):
+#     """Matching conditions between two probability models (PMs). Upper refers to the
+#     low tail-body PMs for fitting three PMs.
 
-    Args:
-        par (dict): parameters of the usual dictionary format
+#     Args:
+#         par (dict): parameters of the usual dictionary format
 
-    Returns:
-        [type]: [description]
-    """
-    # ----------------------------------------------------------------------------------
-    # Obtaining the parameters
-    # ----------------------------------------------------------------------------------
-    t_expans = params_t_expansion(
-        mode, param, df.sort_values(by="n").drop_duplicates(subset=["n"]).loc[:, "n"]
-    )
-    df_, _ = get_params(
-        df.sort_values(by="n").drop_duplicates(subset=["n"]),
-        param,
-        par,
-        mode,
-        t_expans,
-    )
+#     Returns:
+#         [type]: [description]
+#     """
+#     # ----------------------------------------------------------------------------------
+#     # Obtaining the parameters
+#     # ----------------------------------------------------------------------------------
+#     t_expans = params_t_expansion(
+#         mode, param, df.sort_values(by="n").drop_duplicates(subset=["n"]).loc[:, "n"]
+#     )
+#     df_, _ = get_params(
+#         df.sort_values(by="n").drop_duplicates(subset=["n"]),
+#         param,
+#         par,
+#         mode,
+#         t_expans,
+#     )
 
-    # ----------------------------------------------------------------------------------
-    # Applying the restrictions along "n"
-    # ----------------------------------------------------------------------------------
-    if not param["reduction"]:
-        # ------------------------------------------------------------------------------
-        # Using two PMs, the body PM is the first one and the second PM is used as upper
-        # tail model. Using three PMS, the body PM is the center one.
-        # ------------------------------------------------------------------------------
-        f_body, f_tail = 1, 2
+#     # ----------------------------------------------------------------------------------
+#     # Applying the restrictions along "n"
+#     # ----------------------------------------------------------------------------------
+#     if not param["reduction"]:
+#         # ------------------------------------------------------------------------------
+#         # Using two PMs, the body PM is the first one and the second PM is used as upper
+#         # tail model. Using three PMS, the body PM is the center one.
+#         # ------------------------------------------------------------------------------
+#         f_body, f_tail = 1, 2
 
-        if param["no_param"][f_body] == 2:
-            fc_u2 = param["fun"][f_body].pdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
-            )
-            Fc_u2 = param["fun"][f_body].cdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
-            )
-        else:
-            fc_u2 = param["fun"][f_body].pdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
-            )
-            Fc_u2 = param["fun"][f_body].cdf(
-                df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
-            )
+#         if param["no_param"][f_body] == 2:
+#             fc_u2 = param["fun"][f_body].pdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
+#             )
+#             Fc_u2 = param["fun"][f_body].cdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"]
+#             )
+#         else:
+#             fc_u2 = param["fun"][f_body].pdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
+#             )
+#             Fc_u2 = param["fun"][f_body].cdf(
+#                 df_[f_body]["u2"], df_[f_body]["s"], df_[f_body]["l"], df_[f_body]["e"]
+#             )
 
-        if param["no_param"][f_tail] == 2:
-            ft_u2 = -param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
-        else:
-            ft_u2 = -param["fun"][f_tail].pdf(
-                0, df_[f_tail]["s"], df_[f_tail]["l"], df_[f_tail]["e"]
-            )
+#         if param["no_param"][f_tail] == 2:
+#             ft_u2 = -param["fun"][f_tail].pdf(0, df_[f_tail]["s"], df_[f_tail]["l"])
+#         else:
+#             ft_u2 = -param["fun"][f_tail].pdf(
+#                 0, df_[f_tail]["s"], df_[f_tail]["l"], df_[f_tail]["e"]
+#             )
 
-    constraints_ = np.sqrt(1 / len(ft_u2) * np.sum((ft_u2 * Fc_u2 - fc_u2) ** 2))
+#     constraints_ = np.sqrt(1 / len(ft_u2) * np.sum((ft_u2 * Fc_u2 - fc_u2) ** 2))
 
-    return constraints_
+#     return constraints_
 
 
 def fit(df_: pd.DataFrame, param_: dict, par0: list, mode_: list, ref: int):
@@ -704,14 +784,14 @@ def fit(df_: pd.DataFrame, param_: dict, par0: list, mode_: list, ref: int):
         if param["no_fun"] == 1:
             constraints_ = []
         elif param["no_fun"] == 2:
-            constraints_ = [
-                {"type": "eq", "fun": lambda x: matching_lower_bound(x)},
-            ]
+            constraints_ = []  # [
+            #     {"type": "eq", "fun": lambda x: matching_lower_bound(x)},
+            # ]
         else:
-            constraints_ = [
-                {"type": "eq", "fun": lambda x: matching_lower_bound(x)},
-                {"type": "eq", "fun": lambda x: matching_upper_bound(x)},
-            ]
+            constraints_ = []  # [
+            #     {"type": "eq", "fun": lambda x: matching_lower_bound(x)},
+            #     {"type": "eq", "fun": lambda x: matching_upper_bound(x)},
+            # ]
     else:
         constraints_ = []
 
@@ -1086,7 +1166,7 @@ def nllf(par, df, imod, param, t_expans):
                 for i in range(param["no_fun"]):
                     if i == 0:
                         df_ = df[i].loc[df[i][param["var"]] < df[i]["u" + str(i + 1)]]
-                        if (not param["piecewise"]) & param["circular"]:
+                        if (not param["piecewise"]) & (param["type"] == "circular"):
                             nplogesci = np.log(esc[i])
                         else:
                             nplogesci = esc[i][
@@ -1094,7 +1174,7 @@ def nllf(par, df, imod, param, t_expans):
                             ]
                     elif i == param["no_fun"] - 1:
                         df_ = df[i].loc[df[i][param["var"]] >= df[i]["u" + str(i)]]
-                        if (not param["piecewise"]) & param["circular"]:
+                        if (not param["piecewise"]) & (param["type"] == "circular"):
                             nplogesci = np.log(esc[i])
                         else:
                             nplogesci = esc[i][
@@ -1107,7 +1187,7 @@ def nllf(par, df, imod, param, t_expans):
                                 & (df[i][param["var"]] < df[i]["u" + str(i + 1)])
                             )
                         ]
-                        if (not param["piecewise"]) & param["circular"]:
+                        if (not param["piecewise"]) & (param["type"] == "circular"):
                             nplogesci = np.log(esc[i])
                         else:
                             nplogesci = esc[i][
@@ -1122,7 +1202,7 @@ def nllf(par, df, imod, param, t_expans):
                     # ------------------------------------------------------------------
                     if (
                         (not param["no_fun"] == 1)
-                        & (param["circular"])
+                        & (param["type"] == "circular")
                         & (param["scipy"][i] == True)
                     ):
                         en = np.log(
@@ -1215,6 +1295,7 @@ def get_params(df: pd.DataFrame, param: dict, par: list, imod: list, t_expans):
                 ]
             ):
                 pars_fourier = 2
+            # Check if detrend is required
 
             df["shape"] = par[0] + np.dot(
                 par[1 : mode[0] * pars_fourier + 1],
@@ -1224,6 +1305,8 @@ def get_params(df: pd.DataFrame, param: dict, par: list, imod: list, t_expans):
                 par[mode[0] * pars_fourier + 2 : mode[0] * pars_fourier * 2 + 2],
                 t_expans[0 : mode[0] * pars_fourier, :],
             )
+
+            # Check the parameters no. of the probability model for the body
             if param["no_param"][0] == 2:
                 df["xi2"] = par[mode[0] * pars_fourier * 2 + 2] + np.dot(
                     par[
@@ -1501,8 +1584,10 @@ def get_params(df: pd.DataFrame, param: dict, par: list, imod: list, t_expans):
         #                 1 - esc[2], df[1]["s"], df[1]["l"], df[1]["e"]
         #             )
 
-        if ((not param["fix_percentiles"]) | (param["constraints"])) & (
-            not param["reduction"]
+        if (
+            ((not param["fix_percentiles"]) | (param["constraints"]))
+            & (not param["reduction"])
+            & (not param["type"] == "circular")
         ):
             if param["no_fun"] == 2:
                 if param["no_param"][0] == 2:
@@ -1611,7 +1696,7 @@ def ppf(df: pd.DataFrame, param: dict):
             # --------------------------------------------------------------------------
             # Wheter more than one probability model are given
             # --------------------------------------------------------------------------
-            if param["circular"]:
+            if param["type"] == "circular":
                 data = np.linspace(param["minimax"][0], param["minimax"][1], 100)
             else:
                 data = np.linspace(param["minimax"][0], param["minimax"][1], 1000)
@@ -1620,14 +1705,14 @@ def ppf(df: pd.DataFrame, param: dict):
             # --------------------------------------------------------------------------
             # Due to the computational cost of cdf wrap-norm, the file will be saved
             # --------------------------------------------------------------------------
-            if param["circular"] & (
+            if (param["type"] == "circular") & (
                 all(value == 0 for value in param["scipy"].values())
             ):
-                try:
-                    cdfs = read.npy("cdf_wrapnorm.temp")
-                except:
+                if os.path.isfile(param["file_name"] + "_cdf_wrapnorm.temp.npy"):
+                    cdfs = read.npy(param["file_name"] + "_cdf_wrapnorm.temp")
+                else:
                     cdfs = cdf(df, param, ppf=True)
-                    save.to_npy(cdfs, "cdf_wrapnorm.temp")
+                    save.to_npy(cdfs, param["file_name"] + "_cdf_wrapnorm.temp")
             else:
                 cdfs = cdf(df, param, ppf=True)
 
@@ -1724,7 +1809,7 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
         else:
             # More than one PMs
             if ppf:
-                if param["circular"]:
+                if param["type"] == "circular":
                     data = np.linspace(param["minimax"][0], param["minimax"][1], 100)
                 else:
                     data = np.linspace(param["minimax"][0], param["minimax"][1], 1000)
@@ -1831,11 +1916,16 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
                 else:
                     # For piecewise PMs
                     for k, j in enumerate(dfn):
+                        logger.info(
+                            "Computing the cdf numerically | "
+                            + str(np.round((k + 1) / len(dfn) * 100, decimals=2))
+                            + " %"
+                        )
                         for i in range(param["no_fun"]):
                             esci = esc[i]
 
                             if param["no_param"][i] == 2:
-                                if (param["circular"]) & (
+                                if (param["type"] == "circular") & (
                                     param["fun"][i].name == "wrap_norm"
                                 ):
                                     cdf_[k, :] += esci * param["fun"][i].cdf(
@@ -1902,7 +1992,13 @@ def cdf(df: pd.DataFrame, param: dict, ppf: bool = False):
                                 )
 
             else:
-                df, esc = get_params(df, param, param["par"], param["mode"], t_expans)
+                df, esc = get_params(
+                    df,
+                    param,
+                    param["par"],
+                    param["mode"],
+                    t_expans,
+                )
                 df[0]["prob"] = 0
                 # ----------------------------------------------------------------------
                 # Different approach using restrictions
@@ -2384,42 +2480,6 @@ def print_message(res: dict, j: int, mode: list, ref: float):
             )
 
     return
-
-
-def emp(data, pemp, variable, wind_length=1 / 50, circular=False):
-    """Computes the non-stationary empirical percentile of data
-
-    Args:
-        * data (pd.DataFrame): raw time series
-        * pemp (list): list with the empirical percentiles to be computed
-        * variable (string): the name of the variable
-        * wind_length (int, optional): window length in term of the normalize time. Defaults to 1/50.
-        * circular (bool, optional): simplification for circular analysis
-
-    Returns:
-        * data (pd.DataFrame): the data with new columns of percentiles
-    """
-
-    thresholds = []
-
-    for i, _ in enumerate(pemp):
-        thresholds.append("u" + str(i))
-        data["u" + str(i)] = 0
-
-    if circular:
-        data["u" + str(len(pemp) - 1)] = 2 * np.pi
-        thresholds = thresholds[1:-1]
-        pemp = pemp[1:-1]
-
-    for i in data["n"].unique():
-        data.loc[data["n"] == i, thresholds] = (
-            data[variable]
-            .loc[(data["n"] >= i - wind_length) & (data["n"] <= i + wind_length)]
-            .quantile(q=pemp)
-            .values
-        )
-
-    return data
 
 
 class wrap_norm(st.rv_continuous):

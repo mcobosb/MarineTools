@@ -70,6 +70,10 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                 - 'make': True or False
                 - 'method': box-cox or yeo-jonhson
                 - 'plot': True or False
+            - 'detrend': stand for removing trends of time series through the statistical parameters
+                - 'make': True or False
+                - 'method': a string with an option of the GFS (commonly polynomials
+                    approaches)
             - 'optimization': a dictionary with some initial parameters for the optimization
             method (see scipy.optimize.minimize), some options are:
                 - 'method': "SLSQP",
@@ -77,14 +81,15 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                 - 'ftol': 1e-4
                 - 'eps': 1e-7
                 - 'bounds': 0.5
+                - 'weighted': a boolean for weighted data along the time axis. A low number
+            of values at some times might give incongruent results.
             - giter: number of global iterations. Repeat the minimization algorithm
             changing the initial guess
-            - scale: a boolean for scaling the initial data (True) or not (False),
-            - 'weighted': a boolean for weighted data along the time axis. A low number
-            of values at some times might give incongruent results.
-            - 'mode': a list with the mode to be computed independently,
-            - 'par': initial guess of the parameters for the mode given
-            - 'folder_name': string where the folder where the analysis will be saved
+            - 'initial_parameters': when initial parameters of a unique optimization
+            mode are given
+                - 'make': True or False
+                - 'mode': a list with the mode to be computed independently,
+                - 'par': initial guess of the parameters for the mode given
             (optional)
             - 'file_name': string where it will be saved the analysis (optional)
 
@@ -98,19 +103,22 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                             "no_terms": int,
                             "periods": [1, 2, 4, ...]}
                         'ws_ps': 1 or a list,
-                        'transform': None or a list with:
+                        'transform': None or a dictionary with:
                             {"make": True,
                             "plot": False,
-                            "method": "box-cox"}, or "yeo-johnson}
-                        'mode': [6] or [2,2] ...
-                        'par': a list with initial parameters if mode is given
+                            "method": "box-cox" or "yeo-johnson"},
+                        'detrend': None or a dictionary with:
+                            {"make": True,
+                            "method": "chebyschev", "legendre", "polynomial", ...},
+                        'initial_parameters': None or a list with:
+                            {'mode': [6] or [2,2],
+                            'par': a list with initial parameters if mode is given},
                         'optimization': {'method': 'SLSQP' (default), 'dual_annealing',
                             'differential_evolution' or 'shgo',
                             'eps', 'ftol', 'maxiter', 'bounds'},
                         'giter': 10,
                         'scale': False,
                         'bic': True or False,
-                        'folder_name': 'marginalfit'
                         'file_name': if not given, it is created from input parameters
                         }
                     }
@@ -134,12 +142,21 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
             "Dataset has negative values. Check that the chosen distribution functions adequately fit negative values."
         )
 
+    if parameters["type"] == "circular":
+        # Transform angles to radian
+        df = np.deg2rad(df)
+        # Compute the percentile of change between probability models
+        ecdf = auxiliar.ecdf(df, parameters["var"], no_perc=1000)
+        # Smooth the ecdf
+        ecdf["soft"] = auxiliar.smooth_1d(ecdf[parameters["var"]], 100)
+        # Compute the difference
+        ecdf["dif"] = ecdf["soft"].diff()
+        # Obtain the index of the max
+        max_ = auxiliar.max_moving(ecdf["dif"], 250)
+        parameters["ws_ps"] = [max_.index[0]]
+
     # Check that the input dictionary is well defined
     parameters = check_marginal_params(parameters)
-
-    # Transform angles to radian
-    if parameters["circular"]:
-        df = np.deg2rad(df)
 
     # Normalized the data using one of the normalization method if it is required
     if parameters["transform"]["make"]:
@@ -161,7 +178,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
             #         parameters["ws_ps"][ind_] = val_ / (parameters["range"] / 3)
 
     # Bound the variable with some reference values
-    if parameters["circular"]:
+    if parameters["type"] == "circular":
         parameters["minimax"] = [0, 2 * np.pi]
     else:
         parameters["minimax"] = [
@@ -179,8 +196,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         / (parameters["basis_period"][0] * 365.25 * 24 * 3600),
         1,
     )
+    # Create and additional time line for detrending
+    if parameters["detrend"]["make"]:
+        df["n_detrend"] = (df.index - df.index[0]) / (df.index[-1] - df.index[0])
 
-    # Compute the tempora weights if it is required
+    # Compute the temporaL weights if it is required
     if parameters["weighted"]["make"]:
         if parameters["weighted"]["window"] == "month":
             counts = df.groupby("n").count()  # TODO: con pesos promedio mensuales.
@@ -196,9 +216,9 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     else:
         parameters["weighted"]["values"] = 1
 
-    # Make the full analysis if "mode" is not given or a specify mode wheter "mode" is given
-    if not parameters["mode"]:
-        logger.info("MARGINAL STATISTICAL FIT")
+    if not parameters["non_stat_analysis"]:
+        # Make the stationary analysis
+        logger.info("MARGINAL STATIONARY FIT")
         logger.info(
             "=============================================================================="
         )
@@ -218,31 +238,40 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
 
         # Write the information about the variable, PMs and method
-        if parameters["non_stat_analysis"] == True:
-            term = (
-                "\nNon-stationary fit of "
-                + parameters["var"]
-                + " with the "
-                + str(parameters["fun"][0].name)
-            )
-            for i in range(1, parameters["no_fun"]):
-                term += " - " + str(parameters["fun"][i].name)
+    elif parameters["non_stat_analysis"] & (
+        not parameters["initial_parameters"]["make"]
+    ):
+        # Make the stationary analysis first
+        df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
+        # Make the non-stationary analysis
+        logger.info("MARGINAL NON-STATIONARY FIT")
+        logger.info(
+            "=============================================================================="
+        )
+        term = (
+            "\nNon-stationary fit of "
+            + parameters["var"]
+            + " with the "
+            + str(parameters["fun"][0].name)
+        )
+        for i in range(1, parameters["no_fun"]):
+            term += " - " + str(parameters["fun"][i].name)
+        if parameters["reduction"]:
             term += " - genpareto " * parameters["reduction"]
-            term += " probability model"
-            logger.info(term)
-            logger.info(
-                "with the "
-                + parameters["optimization"]["method"]
-                + " optimization method."
-            )
-            logger.info(
-                "=============================================================================="
-            )
-            # Make the non-stationary analysis
-            parameters = stf.nonst_analysis(df, parameters)
+        term += " probability model"
+        logger.info(term)
+        logger.info(
+            "with the " + parameters["optimization"]["method"] + " optimization method."
+        )
+        logger.info(
+            "=============================================================================="
+        )
+
+        # Make the non-stationary analysis
+        parameters = stf.nonst_analysis(df, parameters)
 
     else:
-        # Write the information about the variable, PMs, method and mode
+        # Make the non-stationary analysis of a given mode
         term = (
             "Non-stationary fit of "
             + parameters["var"]
@@ -252,7 +281,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         for i in range(1, parameters["no_fun"]):
             term += "-" + str(parameters["fun"][i].name)
         term += " and mode:"
-        for mode in parameters["mode"]:
+        for mode in parameters["initial_parameters"]["mode"]:
             term += " " + str(mode)
         logger.info(term)
         logger.info(
@@ -289,16 +318,14 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     parameters["status"] = "Distribution models fitted succesfully"
 
     # Final computational time
-    logger.info("End fitting process")
+    logger.info("End of the fitting process")
     logger.info("--- %s seconds ---" % (time.time() - start_time))
 
-    # Save the parameters in the file if "fname" is given in params
-    auxiliar.mkdir(parameters["folder_name"])
+    # Save the parameters in the file if "file_name" is given in params
+    # auxiliar.mkdir(parameters["folder_name"])
 
     if not "file_name" in parameters.keys():
         generate_outputfilename(parameters)
-    else:
-        parameters["file_name"] = parameters["folder_name"] + parameters["file_name"]
 
     del parameters["weighted"]["values"]
     save.to_json(parameters, parameters["file_name"])
@@ -321,10 +348,12 @@ def check_marginal_params(param: dict):
     param["scipy"] = {}
     param["reduction"] = False
     param["no_tot_param"] = 0
+    param["constraints"] = True
 
     logger.info("USER OPTIONS:")
     k = 1
 
+    # Checking the transform parameters if any
     if not "transform" in param.keys():
         param["transform"] = {}
         param["transform"]["make"] = False
@@ -342,6 +371,36 @@ def check_marginal_params(param: dict):
                     str(k)
                     + " - Data is previously normalized ("
                     + param["transform"]["method"]
+                    + " method given)".format(str(k))
+                )
+                k += 1
+
+    # Checking the detrend parameters if any
+    if not "detrend" in param.keys():
+        param["detrend"] = {}
+        param["detrend"]["make"] = False
+    else:
+        if param["detrend"]["make"]:
+            if not param["detrend"]["method"] in [
+                "chebyshev",
+                "legendre",
+                "laguerre",
+                "hermite",
+                "ehermite",
+                "polynomial",
+            ]:
+                raise ValueError(
+                    "Methods available are:\
+                    chebyshev, legendre, laguerre, hermite, ehermite or polynomial.\
+                    Given {}.".format(
+                        param["detrend"]["method"]
+                    )
+                )
+            else:
+                logger.info(
+                    str(k)
+                    + " - Detrend timeseries is appliedData is previously normalized ("
+                    + param["detrend"]["method"]
                     + " method given)".format(str(k))
                 )
                 k += 1
@@ -387,6 +446,7 @@ def check_marginal_params(param: dict):
                 if param["fun"][i] == "wrap_norm":
                     param["fun"][i] = stf.wrap_norm()
                     param["scipy"][i] = False
+                    param["constraints"] = False
                 else:
                     param["fun"][i] = getattr(st, param["fun"][i])
                     param["scipy"][i] = True
@@ -487,42 +547,100 @@ def check_marginal_params(param: dict):
         )
         k += 1
 
-    if not "par" in param.keys():
-        param["par"], param["mode"] = {}, {}
-    else:
-        if not "mode" in param.keys():
+    # Check if initial parameters are given
+    if not "initial_parameters" in param.keys():
+        param["initial_parameters"] = {}
+        param["initial_parameters"]["make"] = False
+    elif "initial_parameters" in param.keys():
+        if not "make" in param["initial_parameters"]:
             raise ValueError(
-                "The evaluation of a mode required the initial parameters 'par'. Give the par."
+                "The evaluation of a certain mode requires that initial parameter 'make' set to True. Not given."
+            )
+        if not "par" in param["initial_parameters"].keys():
+            param["initial_parameters"]["par"] = []
+            logger.info(
+                str(k)
+                + " - Parameters of optimization not given. It will be applied the Fourier initialization."
+            )
+            k += 1
+        else:
+            logger.info(
+                str(k)
+                + " - Parameters of optimization given ({}).".format(
+                    param["initial_parameters"]["par"]
+                )
+            )
+            k += 1
+        if not "mode" in param["initial_parameters"].keys():
+            raise ValueError(
+                "The evaluation of a mode requires the initial mode 'mode'. Give the mode."
             )
         else:
             logger.info(
-                str(k) + " - Mode of optimization given ({}).".format(param["mode"])
+                str(k)
+                + " - Mode of optimization given ({}).".format(
+                    param["initial_parameters"]["mode"]
+                )
             )
             k += 1
+        if not "plot" in param["initial_parameters"].keys():
+            param["initial_parameters"]["plot"] = False
+    # TODO: chequear lo siguiente, no tiene mucho sentido
+    # else:
+    #     param["initial_parameters"] = {}
+    #     param["initial_parameters"][
+    #         "make"
+    #     ] = False  # TODO: chequear que la opción con True funciona correctamente
+    #     param["initial_parameters"]["mode"] = [param["basis_function"]["order"]]
+    #     param["initial_parameters"]["par"] = []
+    #     logger.info(
+    #         str(k)
+    #         + " - Initial parameters will be computed using series expansion of the given order ({}).".format(
+    #             param["basis_function"]["order"]
+    #         )
+    #     )
+    #     k += 1
 
     if not "optimization" in param.keys():
         param["optimization"] = {}
         param["optimization"]["method"] = "SLSQP"
-        param["optimization"]["eps"] = 1e-7
+        param["optimization"]["eps"] = 1e-3
         param["optimization"]["maxiter"] = 1e2
-        param["optimization"]["ftol"] = 1e-4
+        param["optimization"]["ftol"] = 1e-3
+        if param["initial_parameters"]["make"]:
+            logger.info(
+                str(k)
+                + " - Optimization method more adequate using the Fourier Series initialization is {}.".format(
+                    "dual_annealing"
+                )
+            )
+            param["optimization"]["method"] = "dual_annealing"
+
+            k += 1
     else:
         if param["optimization"] is None:
             param["optimization"] = {}
             param["optimization"]["method"] = "SLSQP"
-            param["optimization"]["eps"] = 1e-7
+            param["optimization"]["eps"] = 1e-3
             param["optimization"]["maxiter"] = 1e2
-            param["optimization"]["ftol"] = 1e-4
+            param["optimization"]["ftol"] = 1e-3
         else:
             if not "eps" in param["optimization"].keys():
-                param["optimization"]["eps"] = 1e-7
+                param["optimization"]["eps"] = 1e-3
             if not "maxiter" in param["optimization"].keys():
                 param["optimization"]["maxiter"] = 1e2
             if not "ftol" in param["optimization"].keys():
-                param["optimization"]["ftol"] = 1e-4
+                param["optimization"]["ftol"] = 1e-3
 
-    if not "method" in param["optimization"]:
-        param["optimization"]["method"] = "SLSQP"
+    # if not "method" in param["optimization"]:
+    #     param["optimization"]["method"] = "SLSQP"
+    # else:
+    #     logger.info(
+    #         "{} - Optimization method was given by user ({})".format(
+    #             str(k), str(param["optimization"]["method"])
+    #         )
+    #     )
+    #     k += 1
 
     if not "giter" in param["optimization"].keys():
         param["optimization"]["giter"] = 10
@@ -537,8 +655,14 @@ def check_marginal_params(param: dict):
             )
             k += 1
 
+    # if param["initial_parameters"]["make"]:
+    #     param["optimization"]["method"] = "dual_annealing"
+
     if not "bounds" in param["optimization"].keys():
-        param["optimization"]["bounds"] = 0.5
+        if param["type"] == "circular":
+            param["optimization"]["bounds"] = 0.1
+        else:
+            param["optimization"]["bounds"] = 0.5
     else:
         if not isinstance(param["optimization"]["bounds"], (float, int, bool)):
             raise ValueError("The bounds should be a float, integer or False.")
@@ -549,8 +673,6 @@ def check_marginal_params(param: dict):
                 )
             )
             k += 1
-
-    param["constraints"] = True
 
     if "piecewise" in param:
         if not param["reduction"]:
@@ -600,29 +722,24 @@ def check_marginal_params(param: dict):
             param["ws_ps"] = []
         elif (not "ws_ps" in param) & (param["no_fun"] - 1 != 0):
             raise ValueError(
-                "Expected {} weight\s for the analysis. However ws_ps option is not given.".format(
+                "Expected {} weight\\s for the analysis. However ws_ps option is not given.".format(
                     str(param["no_fun"] - 1)
                 )
             )
 
         if len(param["ws_ps"]) != param["no_fun"] - 1:
             raise ValueError(
-                "Expected {} weight\s for the analysis. Got {}.".format(
+                "Expected {} weight\\s for the analysis. Got {}.".format(
                     str(param["no_fun"] - 1), str(len(param["ws_ps"]))
                 )
             )
 
     # Check if the variable is circular or linear
     if param["type"] == "circular":
-        param["circular"] = True
-        logger.info("{} - Type 'circular' is set to True.".format(str(k)))
+        logger.info("{} - Type is set to 'circular'.".format(str(k)))
     else:
-        logger.info("{} - Type 'circular' is set to False.".format(str(k)))
-        param["circular"] = False
+        logger.info("{} - Type is set to 'linear'.".format(str(k)))
     k += 1
-
-    if param["circular"]:
-        param["constraints"] = False
 
     if (any(np.asarray(param["ws_ps"]) > 1) or any(np.asarray(param["ws_ps"]) < 0)) & (
         not param["piecewise"]
@@ -662,10 +779,8 @@ def check_marginal_params(param: dict):
     else:
         param["fix_percentiles"] = False
 
-    if not "folder_name" in param.keys():
-        param["folder_name"] = "marginalfit/"
-    else:
-        param["folder_name"] += "/marginalfit/"
+    # if not "folder_name" in param.keys():
+    #     param["folder_name"] = "marginalfit/"
 
     if not "scale-shift" in param.keys():
         param["scale-shift"] = False
@@ -707,6 +822,52 @@ def check_marginal_params(param: dict):
     )
 
     return param
+
+
+# def init_fourier_coefs():
+#     """Compute an estimation of the initial parameters for trigonometric expansions"""
+#     timestep = 1 / 365.25
+#     wlen = 14 / 365.25  # 14-days window
+#     res = pd.DataFrame(
+#         0, index=np.arange(0, 1, timestep), columns=["s", "loc", "scale"]
+#     )
+#     for ii, i in enumerate(res.index):
+#         if i >= (1 - wlen):
+#             final_offset = i + wlen - 1
+#             mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
+#                 data["n"] <= final_offset
+#             )
+#         elif i <= wlen:
+#             initial_offset = i - wlen
+#             mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
+#                 data["n"] >= 1 + initial_offset
+#             )
+#         else:
+#             mask = (data["n"] >= i - wlen) & (data["n"] <= i + wlen)
+
+#         model = st.gamma
+#         result = st.fit(
+#             model,
+#             data[station].loc[mask],
+#             bounds=[(0, 5), bound, (0, 100)],
+#         )
+#         res.loc[i, :] = result.params.a, result.params.loc, result.params.scale
+
+#     coefs = np.fft.fft(res.loc[:, paramName] - np.mean(res.loc[:, paramName]))
+
+#     N = len(res.loc[:, paramName])
+#     # Choose one side of the spectra
+#     cn = np.ravel(coefs[0 : N // 2] / N)
+
+#     an, bn = 2 * np.real(cn), -2 * np.imag(cn)
+
+#     an = an[: index + 1]
+#     bn = bn[: index + 1]
+
+#     parameters = np.mean(res.loc[:, paramName])
+#     for order_k in range(index):
+#         parameters = np.hstack([parameters, an[order_k + 1], bn[order_k + 1]])
+#     return
 
 
 def nanoise(
@@ -815,84 +976,6 @@ def look_models(data, variable, percentiles=[1], fname="models_out", funcs="natu
     save.to_xlsx(results, fname)
 
     return results
-
-
-def gaps(data, variables, fname="gaps", buoy=False):
-    """Creates a table with the main characteristics of gaps for variables
-
-    Args:
-        * data (pd.DataFrame): time series
-        * variables (string): with the variables where gap-info is required
-        * fname (string): name of the output file with the information table
-
-    Returns:
-        * tbl_gaps (pd.DataFrame): gaps info
-    """
-
-    if not isinstance(variables, list):
-        variables = [variables]
-
-    if not buoy:
-        columns_ = [
-            "Cadency (hr)",
-            "Accuracy*",
-            "Period",
-            "No. years",
-            "% gaps",
-            "Med. gap (hr)",
-            "Max. gap (hr)",
-        ]
-    else:
-        columns_ = [
-            "Cadency (hr)",
-            "Accuracy*",
-            "Period",
-            "No. years",
-            "Gaps (%)",
-            "Med. gap (hr)",
-            "Max. gap (hr)",
-            "Quality data (%)",
-        ]
-
-    tbl_gaps = pd.DataFrame(
-        0,
-        columns=columns_,
-        index=variables,
-    )
-    tbl_gaps.index.name = "var"
-
-    for i in variables:
-        dt_nan = data[i].dropna()
-        if buoy:
-            quality = np.sum(data.loc[dt_nan.index, "Qc_e"] <= 2)
-
-        dt0 = (dt_nan.index[1:] - dt_nan.index[:-1]).total_seconds() / 3600
-        dt = dt0[dt0 > np.median(dt0) + 0.1].values
-        if dt.size == 0:
-            dt = 0
-        acc = st.mode(np.diff(dt_nan.sort_values().unique()))[0]
-
-        tbl_gaps.loc[i, "Cadency (hr)"] = np.round(st.mode(dt0)[0] * 60, decimals=2)
-        tbl_gaps.loc[i, "Accuracy*"] = np.round(acc, decimals=2)
-        tbl_gaps.loc[i, "Period"] = str(dt_nan.index[0]) + "-" + str(dt_nan.index[-1])
-        tbl_gaps.loc[i, "No. years"] = dt_nan.index[-1].year - dt_nan.index[0].year
-        tbl_gaps.loc[i, "Gaps (%)"] = np.round(
-            np.sum(dt) / np.float(data[i].shape[0]) * 100, decimals=2
-        )
-        tbl_gaps.loc[i, "Med. gap (hr)"] = np.round(np.median(dt), decimals=2)
-        tbl_gaps.loc[i, "Max. gap (hr)"] = np.round(np.max(dt), decimals=2)
-
-        if buoy:
-            tbl_gaps.loc[i, "Quality data (%)"] = np.round(
-                quality / len(dt_nan) * 100, decimals=2
-            )
-
-    if not fname:
-        logger.info(tbl_gaps)
-    else:
-        save.to_xlsx(tbl_gaps, fname)
-
-    return tbl_gaps
 
 
 def storm_series(data, cols, info):
@@ -1193,7 +1276,7 @@ def dependencies(df: pd.DataFrame, param: dict):
 
     # Transform angles into radians
     for var_ in param["TD"]["vars"]:
-        if param[var_]["circular"]:
+        if param[var_]["type"] == "circular":
             df[var_] = np.deg2rad(df[var_])
 
     cdf_ = pd.DataFrame(index=df.index, columns=param["TD"]["vars"])
@@ -1323,6 +1406,9 @@ def check_dependencies_params(param: dict):
     """
 
     logger.info("USER OPTIONS:")
+    logger.info(
+        "==============================================================================\n"
+    )
     k = 1
 
     if not "method" in param.keys():
@@ -1362,8 +1448,8 @@ def varfit(data: np.ndarray, order: int):
         * par_dt (dict): parameter of the temporal dependency using VAR model
     """
 
-    from statsmodels.tsa.api import VAR
     from statsmodels.tsa.ar_model import AutoReg as AR
+    from statsmodels.tsa.vector_ar.var_model import VAR
 
     # Create the list of output parameters
     data_ = data.values.T
@@ -1542,18 +1628,42 @@ def ensemble_dt(models: dict, percentiles="equally"):
 
 
 def iso_rmse(
-    data: pd.DataFrame, variable: str, param: dict = None, daysWindowsLength: int = 14
+    reference: pd.DataFrame,
+    variable: str,
+    param: dict = None,
+    data: pd.DataFrame = None,
+    daysWindowsLength: int = 14,
 ):
-    if not isinstance(data, pd.DataFrame):
-        data = data.to_frame()
+    """Compute the rmse of the iso-probability lines of the non-stationary cdf
 
-    T = 1
+    Args:
+        reference (pd.DataFrame): _description_
+        variable (str): _description_
+        param (dict, optional): _description_. Defaults to None.
+        data (pd.DataFrama, optional):
+        daysWindowsLength (int, optional): _description_. Defaults to 14.
+
+    Returns:
+        _type_: _description_
+    """
+
     if param is not None:
         if param["basis_period"] is not None:
             T = np.max(param["basis_period"])
+        emp_non_st = False
+    else:
+        emp_non_st = True
+        T = 1
+        data["n"] = np.fmod(
+            (data.index - datetime.datetime(data.index[0].year, 1, 1, 0))
+            .total_seconds()
+            .values
+            / (T * 365.25 * 24 * 3600),
+            1,
+        )
 
-    data["n"] = np.fmod(
-        (data.index - datetime.datetime(data.index[0].year, 1, 1, 0))
+    reference["n"] = np.fmod(
+        (reference.index - datetime.datetime(reference.index[0].year, 1, 1, 0))
         .total_seconds()
         .values
         / (T * 365.25 * 24 * 3600),
@@ -1563,52 +1673,86 @@ def iso_rmse(
     dt = 366
     n = np.linspace(0, 1, dt)
     xp, pemp = auxiliar.nonstationary_ecdf(
-        data,
+        reference,
         variable,
         wlen=daysWindowsLength / (365.25 * T),
     )
 
-    for j, i in enumerate(pemp):
-        if isinstance(param, dict):
-            if param["transform"]["plot"]:
-                xp[i], _ = stf.transform(xp[[i]], param)
-                xp[i] -= param["transform"]["min"]
+    # A empirical model
+    if emp_non_st:
+        data_check, _ = auxiliar.nonstationary_ecdf(
+            data,
+            variable,
+            wlen=daysWindowsLength / (365.25 * T),
+        )
+    else:
+        # A theoretical model
+        # ----------------------------------------------------------------------------------
+        for j, i in enumerate(pemp):
+            if not emp_non_st:
+                if param["transform"]["plot"]:
+                    xp[i], _ = stf.transform(xp[[i]], param)
+                    xp[i] -= param["transform"]["min"]
+                    if "scale" in param:
+                        xp[i] = xp[i] / param["scale"]
+
+                param = auxiliar.str2fun(param, None)
+        data_check = pd.DataFrame(0, index=n, columns=pemp)
+
+        for i, j in enumerate(pemp):
+            df = pd.DataFrame(np.ones(dt) * pemp[i], index=n, columns=["prob"])
+            df["n"] = n
+            if (param["non_stat_analysis"] == True) | (param["no_fun"] > 1):
+                res = stf.ppf(df, param)
+            else:
+                res = pd.DataFrame(
+                    param["fun"][0].ppf(df["prob"], *param["par"]),
+                    index=df.index,
+                    columns=[variable],
+                )
+
+            # Transformed timeserie
+            if (not param["transform"]["plot"]) & param["transform"]["make"]:
                 if "scale" in param:
-                    xp[i] = xp[i] / param["scale"]
+                    res[param["var"]] = res[param["var"]] * param["scale"]
 
-    param = auxiliar.str2fun(param, None)
-    theoretical = pd.DataFrame(0, index=n, columns=pemp)
-
-    for i, j in enumerate(pemp):
-        df = pd.DataFrame(np.ones(dt) * pemp[i], index=n, columns=["prob"])
-        df["n"] = n
-        if (param["non_stat_analysis"] == True) | (param["no_fun"] > 1):
-            res = stf.ppf(df, param)
-        else:
-            res = pd.DataFrame(
-                param["fun"][0].ppf(df["prob"], *param["par"]),
-                index=df.index,
-                columns=[variable],
-            )
-
-        # Transformed timeserie
-        if (not param["transform"]["plot"]) & param["transform"]["make"]:
-            if "scale" in param:
+                res[param["var"]] = res[param["var"]] + param["transform"]["min"]
+                res[param["var"]] = stf.inverse_transform(res[[param["var"]]], param)
+            elif ("scale" in param) & (not param["transform"]["plot"]):
                 res[param["var"]] = res[param["var"]] * param["scale"]
 
-            res[param["var"]] = res[param["var"]] + param["transform"]["min"]
-            res[param["var"]] = stf.inverse_transform(res[[param["var"]]], param)
-        elif ("scale" in param) & (not param["transform"]["plot"]):
-            res[param["var"]] = res[param["var"]] * param["scale"]
+            data_check[j] = res[param["var"]]
 
-        theoretical[j] = res[param["var"]]
-
+    # ----------------------------------------------------------------------------------
     rmse = pd.DataFrame(-1, index=pemp, columns=["rmse"])
     for j in pemp:
-        rmse.loc[j] = auxiliar.rmse(xp[j], theoretical[j])
+        rmse.loc[j] = auxiliar.rmse(xp[j], data_check[j])
 
     return rmse
 
+
+def confidence_bands(rmse, n, confidence_level):
+    """_summary_
+
+    Args:
+        rmse (_type_): número de puntos de datos
+        n (_type_): RMSE de tu modelo
+        confidence_level (_type_): nivel de confianza
+    """
+
+
+    # Paso 2: Calcular el error estándar de los residuos
+    ser = rmse / np.sqrt(n)
+
+    # Paso 4: Calcular el valor crítico de la distribución t de Student
+    degrees_of_freedom = n - 1
+    alpha = 1 - confidence_level
+    t_critical = st.t.ppf(1 - alpha/2, degrees_of_freedom)
+
+    # Paso 5: Calcular el margen de error
+    margin_of_error = t_critical * ser
+
+    return margin_of_error
 
 def generate_outputfilename(parameters):
     """_summary_
@@ -1616,7 +1760,7 @@ def generate_outputfilename(parameters):
     Args:
         parameters (_type_): _description_
     """
-    
+
     filename = parameters["var"] + "_" + str(parameters["fun"][0])
     for i in range(1, parameters["no_fun"]):
         filename += "_" + str(parameters["fun"][i])
@@ -1637,6 +1781,5 @@ def generate_outputfilename(parameters):
         filename += "_" + str(parameters["basis_function"]["degree"])
     filename += "_" + parameters["optimization"]["method"]
 
-    filename = parameters["folder_name"] + filename
     parameters["file_name"] = filename
     return

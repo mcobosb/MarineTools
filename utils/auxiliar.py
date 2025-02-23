@@ -6,6 +6,7 @@ import pandas as pd
 import scipy.stats as st
 from marinetools.temporal import analysis
 from marinetools.temporal.fdist import statistical_fit as stf
+from marinetools.utils import save
 from matplotlib.dates import date2num, num2julian
 from scipy.interpolate import Rbf
 from scipy.optimize import minimize
@@ -31,6 +32,84 @@ def max_moving(data: pd.DataFrame, dur: int):
 
     results = pd.DataFrame(data.loc[id_], index=id_)
     return results
+
+
+def gaps(data, variables, fname="gaps", buoy=False):
+    """Creates a table with the main characteristics of gaps for variables
+
+    Args:
+        * data (pd.DataFrame): time series
+        * variables (string): with the variables where gap-info is required
+        * fname (string): name of the output file with the information table
+
+    Returns:
+        * tbl_gaps (pd.DataFrame): gaps info
+    """
+
+    if not isinstance(variables, list):
+        variables = [variables]
+
+    if not buoy:
+        columns_ = [
+            "Cadency (min)",
+            "Accuracy*",
+            "Period",
+            "No. years",
+            "Gaps (%)",
+            "Med. gap (hr)",
+            "Max. gap (d)",
+        ]
+    else:
+        columns_ = [
+            "Cadency (min)",
+            "Accuracy*",
+            "Period",
+            "No. years",
+            "Gaps (%)",
+            "Med. gap (hr)",
+            "Max. gap (d)",
+            "Quality data (%)",
+        ]
+
+    tbl_gaps = pd.DataFrame(
+        0,
+        columns=columns_,
+        index=variables,
+    )
+    tbl_gaps.index.name = "var"
+
+    for i in variables:
+        dt_nan = data[i].dropna()
+        if buoy:
+            quality = np.sum(data.loc[dt_nan.index, "Qc_e"] <= 2)
+
+        dt0 = (dt_nan.index[1:] - dt_nan.index[:-1]).total_seconds() / 3600
+        dt = dt0[dt0 > np.median(dt0) + 0.1].values
+        if dt.size == 0:
+            dt = 0
+        acc = st.mode(np.diff(dt_nan.sort_values().unique()))[0]
+
+        tbl_gaps.loc[i, "Cadency (min)"] = np.round(st.mode(dt0)[0]*60, decimals=2)
+        tbl_gaps.loc[i, "Accuracy*"] = np.round(acc, decimals=2)
+        tbl_gaps.loc[i, "Period"] = str(dt_nan.index[0]) + "-" + str(dt_nan.index[-1])
+        tbl_gaps.loc[i, "No. years"] = dt_nan.index[-1].year - dt_nan.index[0].year
+        tbl_gaps.loc[i, "Gaps (%)"] = np.round(
+            np.sum(dt) / data[i].shape[0] * 100, decimals=2
+        )
+        tbl_gaps.loc[i, "Med. gap (hr)"] = np.round(np.median(dt), decimals=2)
+        tbl_gaps.loc[i, "Max. gap (d)"] = np.round(np.max(dt)/24, decimals=2)
+
+        if buoy:
+            tbl_gaps.loc[i, "Quality data (%)"] = np.round(
+                quality / len(dt_nan) * 100, decimals=2
+            )
+
+    if not fname:
+        logger.info(tbl_gaps)
+    else:
+        save.to_xlsx(tbl_gaps, fname)
+
+    return tbl_gaps
 
 
 def nonstationary_ecdf(
@@ -64,7 +143,9 @@ def nonstationary_ecdf(
         if (variable == "Hs") | (variable == "Hm0"):
             pemp = np.array([0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.995])
 
-    res = pd.DataFrame(0, index=np.arange(0, 1, timestep), columns=pemp)
+    # res = pd.DataFrame(0, index=np.arange(0, 1, timestep), columns=pemp)
+    res = pd.DataFrame(0, index=data.n.unique(), columns=pemp)
+
     for i in res.index:
         if i >= (1 - wlen):
             final_offset = i + wlen - 1
@@ -83,6 +164,35 @@ def nonstationary_ecdf(
     return res, pemp
 
 
+def best_params(data: pd.DataFrame, bins: int, distrib: str, tail: bool = False):
+    """Computes the best parameters of a simple probability model attending to the rmse of the pdf
+
+    Args:
+        * data (pd.DataFrame): raw time series
+        * bins (int): no. of bins for the histogram
+        * distrib (string): name of the probability model
+        * tail (bool, optional): If it is fit a tail or not. Defaults to False.
+
+    Returns:
+        * params (list): the estimated parameters
+    """
+
+    dif_, sser = 1e2, 1e3
+    nlen = int(len(data) / 200)
+
+    data = data.sort_values(ascending=True).values
+    while (dif_ > 1) & (sser > 30) & (0.95 * nlen < len(data)):
+        results = fit_(data, bins, distrib)
+        sse, params = results[0], results[1:]
+        dif_, sser = np.abs(sser - sse), sse
+
+        if tail:
+            data = data[int(nlen / 4) :]
+        else:
+            data = data[nlen:-nlen]
+    return params
+
+
 def ecdf(df: pd.DataFrame, variable: str, no_perc: int or bool = False):
     """Computes the empirical cumulative distribution function
 
@@ -95,10 +205,10 @@ def ecdf(df: pd.DataFrame, variable: str, no_perc: int or bool = False):
         * dfs (pd.DataFrame): sorted values of the time series and the non-excedence probability of every value
     """
     dfs = df[variable].sort_values().to_frame()
-    dfs["prob"] = np.arange(1, len(dfs) + 1) / (len(dfs) + 1)
+    dfs.index = np.arange(1, len(dfs) + 1) / (len(dfs) + 1)
     if not isinstance(no_perc, bool):
         percentiles = np.linspace(1 / no_perc, 1 - (1 / no_perc), no_perc)
-        values = np.interp(percentiles, dfs["prob"], dfs[variable])
+        values = np.interp(percentiles, dfs.index, dfs[variable])
         dfs = pd.DataFrame(values, columns=[variable], index=percentiles)
     return dfs
 
@@ -350,7 +460,7 @@ def get_params_by_labels(
                 a0 = np.real(fft[0])
                 an = 2 * np.real(fft[1:])
                 bn = -2 * np.imag(fft[1:])
-                mod = np.sqrt(an ** 2 + bn ** 2)
+                mod = np.sqrt(an**2 + bn**2)
                 pha = np.arctan2(bn, an)
 
                 df["{}_0".format(pari)] = a0
@@ -525,9 +635,9 @@ def bias_adjustment(
     else:
         params_hist_low = funcs[0].fit(low_tail_hist)
 
-    hist.loc[
-        hist[variable] <= hist[variable].quantile(quantiles[0]), "unbiased"
-    ] = funcs[0].ppf(funcs[0].cdf(low_tail_hist, *params_hist_low), *params_obs_low)
+    hist.loc[hist[variable] <= hist[variable].quantile(quantiles[0]), "unbiased"] = (
+        funcs[0].ppf(funcs[0].cdf(low_tail_hist, *params_hist_low), *params_obs_low)
+    )
     low_tail_rcp = rcp.loc[
         rcp[variable] <= rcp[variable].quantile(quantiles[0]), variable
     ]
@@ -554,9 +664,9 @@ def bias_adjustment(
     else:
         params_hist_high = funcs[1].fit(high_tail_hist)
 
-    hist.loc[
-        hist[variable] >= hist[variable].quantile(quantiles[1]), "unbiased"
-    ] = funcs[1].ppf(funcs[1].cdf(high_tail_hist, *params_hist_high), *params_obs_high)
+    hist.loc[hist[variable] >= hist[variable].quantile(quantiles[1]), "unbiased"] = (
+        funcs[1].ppf(funcs[1].cdf(high_tail_hist, *params_hist_high), *params_obs_high)
+    )
     high_tail_rcp = rcp.loc[
         rcp[variable] >= rcp[variable].quantile(quantiles[1]), variable
     ]
@@ -712,7 +822,7 @@ def uv2Uang(u, v, labels=["u", "ang"]):
     """
     ang = np.fmod(np.arctan2(v, u) * 180 / np.pi + 360, 360)
     data = pd.DataFrame(
-        np.vstack([np.sqrt(u ** 2 + v ** 2), ang]).T, columns=labels, index=ang.index
+        np.vstack([np.sqrt(u**2 + v**2), ang]).T, columns=labels, index=ang.index
     )  # TODO: verify
     return data
 
@@ -838,7 +948,8 @@ def scaler(data, method="MinMaxScaler", transform=True, scale=False):
     Returns:
         [type]: [description]
     """
-    from sklearn.preprocessing import MinMaxScaler, RobustScaler, StandardScaler
+    from sklearn.preprocessing import (MinMaxScaler, RobustScaler,
+                                       StandardScaler)
 
     algorithms = {
         "MinMaxScaler": MinMaxScaler(),
@@ -888,8 +999,8 @@ def fall_velocity(d, T, S):
     rhos = 2650
     d = d / 1000
     s = rhos / rho
-    D = (g * (s - 1) / kvis ** 2) ** (1 / 3) * d
-    w = kvis / d * (np.sqrt(10.36 ** 2 + 1.049 * D ** 3) - 10.36)
+    D = (g * (s - 1) / kvis**2) ** (1 / 3) * d
+    w = kvis / d * (np.sqrt(10.36**2 + 1.049 * D**3) - 10.36)
     return w
 
 
@@ -1160,6 +1271,7 @@ def smooth_1d(data, window_len=None, poly_order=3):
     """
 
     if window_len is None:
+        # TODO: cambiar el 51 por un valor objetivo
         window_len = int(len(data) / 51)
 
     if not window_len % 2:
@@ -1335,7 +1447,7 @@ def get_params_bylabel(
                 a0 = np.real(fft[0])
                 an = 2 * np.real(fft[1:])
                 bn = -2 * np.imag(fft[1:])
-                mod = np.sqrt(an ** 2 + bn ** 2)
+                mod = np.sqrt(an**2 + bn**2)
                 pha = np.arctan2(bn, an)
 
                 df["{}_0".format(pari)] = a0
@@ -1478,5 +1590,5 @@ def mean_dt_param(B, Q):
 def rmse(a, b):
 
     len_ = len(a)
-    value_ = np.sqrt(np.sum((a - b)**2)/len_)
+    value_ = np.sqrt(np.sum((a - b) ** 2) / len_)
     return value_

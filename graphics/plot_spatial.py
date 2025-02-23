@@ -386,10 +386,7 @@ def folium_map(data, more=[], fname="folium_map"):
 
     import folium
     import geopandas as gpd
-    import shapely.speedups
-    from IPython.display import display
-    from shapely.geometry import (LineString, MultiLineString, MultiPoint,
-                                  Polygon)
+    from shapely.geometry import LineString
 
     data = gsp.transform_data(data, ["utm", "wgs84"], by_columns=True)
     polygon = LineString(data[:, ::-1])
@@ -727,7 +724,7 @@ def osm_image(
 
     ############################################################################
 
-    ax = handle_axis(ax, dim=0, projection=img.crs)
+    _, ax = handle_axis(ax, dim=0, projection=img.crs)
 
     # auto-calculate scale
     scale = int(120 / np.log(radius))
@@ -825,7 +822,7 @@ def calc_extent(lon, lat, dist):
         dist: dist to edge from centre
     """
 
-    dist_cnr = np.sqrt(2 * dist ** 2)
+    dist_cnr = np.sqrt(2 * dist**2)
     top_left = cgeo.Geodesic().direct(
         points=(lon, lat), azimuths=-45, distances=dist_cnr
     )[:, 0:2][0]
@@ -841,7 +838,8 @@ def calc_extent(lon, lat, dist):
 def image_spoof(self, tile):
     """this function reformats web requests from OSM for cartopy
     Heavily based on code by Joshua Hrisko at:
-        https://makersportal.com/blog/2020/4/24/geographic-visualizations-in-python-with-cartopy"""
+        https://makersportal.com/blog/2020/4/24/geographic-visualizations-in-python-with-cartopy
+    """
 
     url = self._image_url(tile)  # get the url of the street map API
     req = Request(url)  # start request

@@ -42,7 +42,7 @@ def to_json(params: dict, file_name: str, npArraySerialization: bool = False):
         - None
     """
 
-    with open(f"{str(file_name)}.json", "w") as f:
+    with open(f"{str(file_name)}", "w") as f:
         if npArraySerialization:
             for key in params.keys():
                 if isinstance(params[key], dict):
@@ -62,7 +62,7 @@ def to_json(params: dict, file_name: str, npArraySerialization: bool = False):
 
 
 def to_csv(data: pd.DataFrame, file_name: str, compression: str = "infer"):
-    """Saves to a csv file
+    """Saves to a kind of csv file
 
     Args:
         - data (pd.DataFrame): data to be saved
@@ -72,11 +72,6 @@ def to_csv(data: pd.DataFrame, file_name: str, compression: str = "infer"):
     Return:
         - None
     """
-    if not ".csv" in file_name:
-        file_name = str(file_name) + ".csv"
-    else:
-        file_name = str(file_name)
-
     if ".zip" in file_name:
         data.to_csv(file_name, compression="zip")
     else:
@@ -110,7 +105,7 @@ def to_xlsx(data: pd.DataFrame, file_name: str):
         - None
     """
 
-    wbook, wsheet = cwriter(str(file_name) + ".xlsx")
+    wbook, wsheet = cwriter(str(file_name))
 
     # Writting the header
     if data.index.name is not None:
@@ -145,7 +140,11 @@ def cwriter(file_out: str):
         - wbook (objects): excel book
         - wsheet (objects): excel sheet
     """
-    writer = pd.ExcelWriter(file_out, engine="xlsxwriter")
+    writer = pd.ExcelWriter(
+        file_out,
+        engine="xlsxwriter",
+        engine_kwargs={"options": {"nan_inf_to_errors": True}},
+    )
     df = pd.DataFrame([0])
     df.to_excel(writer, index=False, sheet_name="Sheet1", startrow=1, header=False)
     wsheet = writer.sheets["Sheet1"]
