@@ -92,7 +92,7 @@ def PdE(file_name: str, new: bool = False):
     if new:
         data = pd.read_table(
             file_name,
-            delimiter="\s+",
+            delimiter=r"\s+",
             parse_dates={"date": [0, 1, 2, 3]},
             index_col="date",
             skiprows=2,
@@ -123,7 +123,7 @@ def PdE(file_name: str, new: bool = False):
 
         data = pd.read_table(
             file_name,
-            delimiter="\s+",
+            delimiter=r"\s+",
             parse_dates={"date": [0, 1, 2, 3]},
             index_col="date",
             skiprows=skiprows,
