@@ -249,24 +249,24 @@ def nonst_analysis(df: pd.DataFrame, param: dict):
             if param["bic"]:
                 mode = min(bic, key=bic.get)
                 param["par"] = list(par[mode])
-                param["initial_parameters"]["mode"] = [int(i) for i in mode]
+                param["mode"] = [int(i) for i in mode]
             else:
                 mode = min(nllf, key=nllf.get)
                 param["par"] = list(par[mode])
-                param["initial_parameters"]["mode"] = [int(i) for i in mode]
+                param["mode"] = [int(i) for i in mode]
         elif param["basis_function"]["order"] == 1:
             if param["bic"]:
                 mode = list(bic.keys())[0]
                 param["par"] = list(par[mode])
-                param["initial_parameters"]["mode"] = [int(i) for i in mode]
+                param["mode"] = [int(i) for i in mode]
             else:
                 mode = list(nllf.keys())[0]
                 param["par"] = list(par[mode])
-                param["initial_parameters"]["mode"] = [int(i) for i in mode]
+                param["mode"] = [int(i) for i in mode]
         else:
             mode = np.zeros(param["no_fun"], dtype=int)
             param["par"] = list(par)
-            param["initial_parameters"]["mode"] = [int(i) for i in mode]
+            param["mode"] = [int(i) for i in mode]
 
         all_ = []
         for i in bic.keys():
@@ -476,7 +476,6 @@ def fourier_expansion(data: pd.DataFrame, par: list, param: dict):
             else:
                 comp_ = mode[ind_mode - 1]
             par0[imode] = initial_params(param, par, pos[ind_mode], imode, comp_)
-
             logger.info("Mode " + str(imode) + " non-stationary")
             if ind_mode == 0:
                 par[imode], nllf[imode] = fit(
@@ -873,7 +872,7 @@ def fit(df_: pd.DataFrame, param_: dict, par0: list, mode_: list, ref: int):
                     par0[i] + param["optimization"]["bounds"],
                 )
 
-        print_message(res[j], j, mode, ref)
+        print_message(res[j], j, mode, ref, param)
 
     nllf_min = min(nllfv, key=nllfv.get)
     if nllfv[nllf_min] > ref:
@@ -2434,7 +2433,7 @@ def params_t_expansion(mod: int, param: dict, nper: pd.DataFrame):
     return t_expans
 
 
-def print_message(res: dict, j: int, mode: list, ref: float):
+def print_message(res: dict, j: int, mode: list, ref: float, param: dict):
     """Prints the messages during the computation
 
     Args:
@@ -2446,38 +2445,39 @@ def print_message(res: dict, j: int, mode: list, ref: float):
     Returns:
         None
     """
-    if not ((res["fun"] == 1e10) | (np.abs(res["fun"]) == np.inf)):
+    if param["verbose"]:
+        if not ((res["fun"] == 1e10) | (np.abs(res["fun"]) == np.inf)):
 
-        if (ref < 0) & (res["fun"] < 0):
-            improve = np.round((ref - res["fun"]) / -ref * 100, decimals=3)
-            if improve > 0:
+            if (ref < 0) & (res["fun"] < 0):
+                improve = np.round((ref - res["fun"]) / -ref * 100, decimals=3)
+                if improve > 0:
+                    improve = "Yes (" + str(improve) + " %)"
+                else:
+                    improve = "No or not significant "
+            elif (ref > 0) & (res["fun"] > 0):
+                improve = np.round((ref - res["fun"]) / ref * 100, decimals=3)
+                if improve > 0:
+                    improve = "Yes (" + str(improve) + " %)"
+                else:
+                    improve = "No or not significant "
+            elif (ref > 0) | (res["fun"] < 0):
+                improve = np.round((ref - res["fun"]) / ref * 100, decimals=3)
                 improve = "Yes (" + str(improve) + " %)"
             else:
                 improve = "No or not significant "
-        elif (ref > 0) & (res["fun"] > 0):
-            improve = np.round((ref - res["fun"]) / ref * 100, decimals=3)
-            if improve > 0:
-                improve = "Yes (" + str(improve) + " %)"
-            else:
-                improve = "No or not significant "
-        elif (ref > 0) | (res["fun"] < 0):
-            improve = np.round((ref - res["fun"]) / ref * 100, decimals=3)
-            improve = "Yes (" + str(improve) + " %)"
-        else:
-            improve = "No or not significant "
 
-        if not (improve == "No or not significant "):
-            logger.info("mode:     " + str(mode))
-            logger.info("fun:      " + str(res["fun"]))
-            logger.info("improve:  " + improve)
-            logger.info("message:  " + str(res["message"]))
-            logger.info("feval:    " + str(res["nfev"]))
-            logger.info("niter:    " + str(res["nit"]))
-            logger.info("giter:    " + str(j))
-            logger.info("params:   " + str(res["x"]))
-            logger.info(
-                "=============================================================================="
-            )
+            if not (improve == "No or not significant "):
+                logger.info("mode:     " + str(mode))
+                logger.info("fun:      " + str(res["fun"]))
+                logger.info("improve:  " + improve)
+                logger.info("message:  " + str(res["message"]))
+                logger.info("feval:    " + str(res["nfev"]))
+                logger.info("niter:    " + str(res["nit"]))
+                logger.info("giter:    " + str(j))
+                logger.info("params:   " + str(res["x"]))
+                logger.info(
+                    "=============================================================================="
+                )
 
     return
 
