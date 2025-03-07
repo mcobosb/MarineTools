@@ -26,12 +26,13 @@ along with MarineTools.  If not, see <https://www.gnu.org/licenses/>.
 
 
 def show_init_message():
+    # TODO: Update this message
     message = (
         "\n"
         + "=============================================================================\n"
         + " Initializing MarineTools.temporal, v.1.0.0\n"
         + "=============================================================================\n"
-        + "Copyright (C) 2021 Environmental Fluid Dynamics Group (University of Granada)\n"
+        + "Copyright (C) 2025 Environmental Fluid Dynamics Group (University of Granada)\n"
         + "=============================================================================\n"
         + "This program is free software; you can redistribute it and/or modify it under\n"
         + "the terms of the GNU General Public License as published by the Free Software\n"
@@ -43,12 +44,16 @@ def show_init_message():
         + "You should have received a copy of the GNU General Public License along with\n"
         + "this program; if not, write to the Free Software Foundation, Inc., 675 Mass\n"
         + "Ave, Cambridge, MA 02139, USA.\n"
+        + "=============================================================================\n"
+        + "Improvements:\n"
+        + "- Added parallel processing for gap checking (2023-02-26, Author: Your Name)\n"
+        + "- Improved data normalization methods (2025-02-26, Author: Your Name)       \n"
         + "============================================================================="
     )
     return message
 
 
-def marginalfit(df: pd.DataFrame, parameters: dict):
+def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
     """Fits a stationary (or not), simple or mixed probability model to data. Additional
     information can be found in Cobos et al., 2022, 'MarineTools.temporal: A Python
     package to simulate Earth and environmental time series'. Environmental Modelling
@@ -92,6 +97,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
                 - 'par': initial guess of the parameters for the mode given
             (optional)
             - 'file_name': string where it will be saved the analysis (optional)
+        * verbose (bool): if True, it shows the information of the fitting process
 
     Example:
         * param = {'Hs': {'var': 'Hs',
@@ -130,7 +136,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
     start_time = time.time()
     now = datetime.datetime.now()
     current_time = now.strftime("%H:%M:%S")
-    logger.info(show_init_message())
+    if verbose:
+        logger.info(show_init_message())
+    else:
+        logger.info("Initializing MarineTools.temporal, v.1.0.0")
+        logger.info("==============================================================================")
     logger.info("Current Time = %s\n" % current_time)
 
     # Remove nan in the input timeseries
@@ -138,9 +148,10 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
 
     # Check if negative and positive values are in the timeseries for fitting purpouses
     if df[df < 0].any().values[0]:
-        logger.info(
-            "Dataset has negative values. Check that the chosen distribution functions adequately fit negative values."
-        )
+        if verbose:
+            logger.info(
+                "Dataset has negative values. Check that the chosen distribution functions adequately fit negative values."
+            )
 
     if parameters["type"] == "circular":
         # Transform angles to radian
@@ -155,6 +166,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         max_ = auxiliar.max_moving(ecdf["dif"], 250)
         parameters["ws_ps"] = [max_.index[0]]
 
+    parameters["verbose"] = verbose
     # Check that the input dictionary is well defined
     parameters = check_marginal_params(parameters)
 
@@ -218,10 +230,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
 
     if not parameters["non_stat_analysis"]:
         # Make the stationary analysis
-        logger.info("MARGINAL STATIONARY FIT")
-        logger.info(
-            "=============================================================================="
-        )
+        if verbose:
+            logger.info("MARGINAL STATIONARY FIT")
+            logger.info(
+                "=============================================================================="
+            )
         # Write the information about the variable, PMs and method
         term = (
             "Stationary fit of "
@@ -233,7 +246,8 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
             term += " - " + str(parameters["fun"][i].name)
         term += " - genpareto " * parameters["reduction"]
         term += " probability model"
-        logger.info(term)
+        if verbose:
+            logger.info(term)
         # Make the stationary analysis
         df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
 
@@ -244,8 +258,9 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         # Make the stationary analysis first
         df, parameters["par"], parameters["mode"] = stf.st_analysis(df, parameters)
         # Make the non-stationary analysis
-        logger.info("MARGINAL NON-STATIONARY FIT")
-        logger.info(
+        if verbose:
+            logger.info("MARGINAL NON-STATIONARY FIT")
+            logger.info(
             "=============================================================================="
         )
         term = (
@@ -259,13 +274,14 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         if parameters["reduction"]:
             term += " - genpareto " * parameters["reduction"]
         term += " probability model"
-        logger.info(term)
-        logger.info(
-            "with the " + parameters["optimization"]["method"] + " optimization method."
-        )
-        logger.info(
-            "=============================================================================="
-        )
+        if verbose:
+            logger.info(term)
+            logger.info(
+                "with the " + parameters["optimization"]["method"] + " optimization method."
+            )
+            logger.info(
+                "=============================================================================="
+            )
 
         # Make the non-stationary analysis
         parameters = stf.nonst_analysis(df, parameters)
@@ -283,10 +299,11 @@ def marginalfit(df: pd.DataFrame, parameters: dict):
         term += " and mode:"
         for mode in parameters["initial_parameters"]["mode"]:
             term += " " + str(mode)
-        logger.info(term)
-        logger.info(
-            "=============================================================================="
-        )
+        if verbose:
+            logger.info(term)
+            logger.info(
+                "=============================================================================="
+            )
         # Make the non-stationary analysis
         parameters = stf.nonst_analysis(df, parameters)
 
@@ -564,6 +581,7 @@ def check_marginal_params(param: dict):
             )
             k += 1
         else:
+            param["par"] = param["initial_parameters"]["par"]
             logger.info(
                 str(k)
                 + " - Parameters of optimization given ({}).".format(
@@ -576,6 +594,7 @@ def check_marginal_params(param: dict):
                 "The evaluation of a mode requires the initial mode 'mode'. Give the mode."
             )
         else:
+            param["mode"] = param["initial_parameters"]["mode"]
             logger.info(
                 str(k)
                 + " - Mode of optimization given ({}).".format(
@@ -583,8 +602,6 @@ def check_marginal_params(param: dict):
                 )
             )
             k += 1
-        if not "plot" in param["initial_parameters"].keys():
-            param["initial_parameters"]["plot"] = False
     # TODO: chequear lo siguiente, no tiene mucho sentido
     # else:
     #     param["initial_parameters"] = {}
@@ -607,16 +624,6 @@ def check_marginal_params(param: dict):
         param["optimization"]["eps"] = 1e-3
         param["optimization"]["maxiter"] = 1e2
         param["optimization"]["ftol"] = 1e-3
-        if param["initial_parameters"]["make"]:
-            logger.info(
-                str(k)
-                + " - Optimization method more adequate using the Fourier Series initialization is {}.".format(
-                    "dual_annealing"
-                )
-            )
-            param["optimization"]["method"] = "dual_annealing"
-
-            k += 1
     else:
         if param["optimization"] is None:
             param["optimization"] = {}
@@ -814,6 +821,10 @@ def check_marginal_params(param: dict):
         else:
             raise ValueError("Weighted options are True or False.")
 
+    if param["verbose"]:
+        logger.info("{} - Verbose is set to True.".format(str(k)))
+        k += 1  
+    
     if k == 1:
         logger.info("None.")
 
@@ -1627,14 +1638,16 @@ def ensemble_dt(models: dict, percentiles="equally"):
     return B, Q, int((norders[1] - 1) / norders[0])
 
 
-def iso_rmse(
+def iso_indicators(
+    indicators: str,
     reference: pd.DataFrame,
     variable: str,
     param: dict = None,
     data: pd.DataFrame = None,
     daysWindowsLength: int = 14,
+    pemp: list = None, 
 ):
-    """Compute the rmse of the iso-probability lines of the non-stationary cdf
+    """Compute indicator of the iso-probability lines of the non-stationary cdf
 
     Args:
         reference (pd.DataFrame): _description_
@@ -1646,6 +1659,9 @@ def iso_rmse(
     Returns:
         _type_: _description_
     """
+
+    if not isinstance(indicators, list):
+        indicators = [indicators]
 
     if param is not None:
         if param["basis_period"] is not None:
@@ -1672,11 +1688,19 @@ def iso_rmse(
 
     dt = 366
     n = np.linspace(0, 1, dt)
-    xp, pemp = auxiliar.nonstationary_ecdf(
-        reference,
-        variable,
-        wlen=daysWindowsLength / (365.25 * T),
-    )
+    if pemp is None:
+        xp, pemp = auxiliar.nonstationary_ecdf(
+            reference,
+            variable,
+            wlen=daysWindowsLength / (365.25 * T),
+            pemp = pemp
+        )
+    else:
+        xp, pemp = auxiliar.nonstationary_ecdf(
+            reference,
+            variable,
+            wlen=daysWindowsLength / (365.25 * T)
+            )
 
     # A empirical model
     if emp_non_st:
@@ -1684,6 +1708,7 @@ def iso_rmse(
             data,
             variable,
             wlen=daysWindowsLength / (365.25 * T),
+            pemp = pemp
         )
     else:
         # A theoretical model
@@ -1724,11 +1749,19 @@ def iso_rmse(
             data_check[j] = res[param["var"]]
 
     # ----------------------------------------------------------------------------------
-    rmse = pd.DataFrame(-1, index=pemp, columns=["rmse"])
-    for j in pemp:
-        rmse.loc[j] = auxiliar.rmse(xp[j], data_check[j])
+    results = pd.DataFrame(-1.0, index=pemp, columns=[indicators])
+    for indicator in indicators:
+        if indicator == "rmse":
+            for j in pemp:
+                results.loc[j, indicator] = auxiliar.rmse(xp[j], data_check[j])
+        elif indicator == "maximum_absolute_error":
+            for j in pemp:
+                results.loc[j, indicator] = auxiliar.maximum_absolute_error(xp[j], data_check[j])
+        elif indicator == "mean_absolute_error":
+            for j in pemp:
+                results.loc[j, indicator]= auxiliar.mean_absolute_error(xp[j], data_check[j])
 
-    return rmse
+    return results
 
 
 def confidence_bands(rmse, n, confidence_level):
