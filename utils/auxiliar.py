@@ -7,7 +7,7 @@ import scipy.stats as st
 from marinetools.temporal import analysis
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.utils import save
-from matplotlib.dates import date2num, num2julian
+from matplotlib.dates import date2num
 from scipy.interpolate import Rbf
 from scipy.optimize import minimize
 
@@ -1310,8 +1310,7 @@ def date2julian(dates, calendar="julian"):
 
     elif calendar == "gregorian":
         if isinstance(dates, pd.DatetimeIndex):
-            dates = num2julian(date2num(dates))
-            dates.toordinal() - date(1, 1, 1).toordinal()
+            dates = dates.to_julian_date()
         elif isinstance(dates, pd.DataFrame):
             dates.index = dates.index.to_julian_date()
         else:
@@ -1588,7 +1587,20 @@ def mean_dt_param(B, Q):
 
 
 def rmse(a, b):
-
+    """Root Mean Square Error"""
     len_ = len(a)
     value_ = np.sqrt(np.sum((a - b) ** 2) / len_)
+    return value_
+
+
+def maximum_absolute_error(a, b):
+    """Maximum Absolute Error"""
+    len_ = len(a)
+    value_ = np.max(np.abs(a - b))
+    return value_
+
+def mean_absolute_error(a, b):
+    """Mean Absolute Error"""
+    len_ = len(a)
+    value_ = np.sum(np.abs(a - b)) / len_
     return value_
