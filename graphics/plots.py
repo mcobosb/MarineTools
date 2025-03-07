@@ -1934,8 +1934,8 @@ def ensemble_acorr(
             lagsim[var_], corrsim_[var_], lw=2, color=color[ind_], label=labels(var_)
         )
 
-    ax.set_xlabel("$\mathrm{\mathbf{Lags\quad  (hours)}}$")
-    ax.set_ylabel("$\mathrm{\mathbf{Normalized\quad autocorrelation}}$")
+    ax.set_xlabel(r"$\mathrm{\mathbf{Lags\quad  (hours)}}$")
+    ax.set_ylabel(r"$\mathrm{\mathbf{Normalized\quad autocorrelation}}$")
     ax.grid(True)
     ax.legend()
     show(file_name)
