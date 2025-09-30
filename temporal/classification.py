@@ -155,6 +155,58 @@ def classification(cases, cases_sha, data, method, notrain):
     return Z
 
 
+def mda(data, variables, m, mvar, fname="cases"):
+    """Implements the Maximum Dissimilarity Algorithm (Camus et al. 2011)
+
+    Args:
+        * data (pd.DataFrame): raw time series
+        * variables (list): name of variables
+        * m (int): number of representative cases
+        * mvar (string): name of the main variable which determines the first subset of size "m"
+        * fname (string): name of the file to save. Defaults to 'cases'.
+
+    Returns:
+        * cases (pd.DataFrame): the representative m-values of the variables
+    """
+    datan = normalize(data, variables)
+
+    n = datan.shape[0]
+    ind_ = []
+
+    # Selection of the first point
+    ind_.append(datan.loc[:, mvar].idxmax())
+
+    # Selection of the second point
+    ds2 = np.zeros(n)
+    for i in variables:
+        if i.lower().startswith("d"):
+            aux = np.abs(datan.loc[:, i] - datan.loc[ind_[0], i])
+            ds2 += (np.minimum(aux, 2 - aux)) ** 2
+        else:
+            ds2 += (datan.loc[:, i] - datan.loc[ind_[0], i]) ** 2
+
+    dissim = np.sqrt(ds2)
+    ind_.append(dissim.idxmax())
+
+    # Selection of the rest of points
+    for l in range(2, m):
+        ds2 = np.zeros(n)
+        for i in variables:
+            if i.lower().startswith("d"):
+                aux = np.abs(datan.loc[:, i] - datan.loc[ind_[l - 1], i])
+                ds2 += (np.minimum(aux, 2 - aux)) ** 2
+            else:
+                ds2 += (datan.loc[:, i] - datan.loc[ind_[l - 1], i]) ** 2
+
+        d = np.sqrt(ds2)
+        dissim = np.min(np.vstack((dissim, d)), 0)
+        ind_.append(datan.index[np.argmax(dissim)])
+
+    cases = data.loc[ind_, :]
+    cases.to_csv(fname)
+    return cases
+
+
 def reconstruction(
     cases_deep,
     data_deep,
