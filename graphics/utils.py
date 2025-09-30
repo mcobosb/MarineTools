@@ -59,7 +59,7 @@ def handle_axis(
             )  # project using coordinate reference system (CRS) of street map
         else:
             fig = plt.figure()
-            ax = fig.gca(projection="3d")
+            ax = fig.add_subplot(111, projection="3d")
 
         if row_plots + col_plots > 2:
             ax = ax.flatten()
