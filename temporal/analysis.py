@@ -7,6 +7,7 @@ import scipy.stats as st
 from loguru import logger
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.utils import auxiliar, read, save
+import os
 
 """This file is part of MarineTools.
 
@@ -343,7 +344,13 @@ def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
 
     if not "file_name" in parameters.keys():
         generate_outputfilename(parameters)
-
+    
+    if "folder_name" in parameters.keys():
+        os.makedirs(parameters["folder_name"], exist_ok=True)
+        parameters["file_name"] = os.path.join(
+            parameters["folder_name"], parameters["file_name"]
+        )
+        
     del parameters["weighted"]["values"]
     save.to_json(parameters, parameters["file_name"])
 
@@ -996,6 +1003,7 @@ def storm_series(data, cols, info):
         * data (pd.DataFrame): raw time series
         * cols (list): names of the concomitant required variables
         * info (dict): the storm duration, interarrival time and threshold of storm events computed following Lira-Loarca et al (2020)
+            filename (str, optional): name of the output file
 
     Returns:
         * df (pd.DataFrame): storm time series
@@ -1049,8 +1057,8 @@ def storm_series(data, cols, info):
     df.index.name = "date"
     df.replace(-99.99, np.nan, inplace=True)
 
-    if "fname" in info.keys():
-        save.to_csv(df.dropna(), info["fname"])
+    if "filename" in info.keys():
+        save.to_csv(df.dropna(), info["filename"])
     df.dropna(inplace=True)
     return df
 
@@ -1067,6 +1075,7 @@ def storm_properties(data, cols, info):
             * min_duration: minimum duration of the storm to be considered a rare event,
             * data_timestep: timestep of the input timeseries,
             * interpolation: if interpolation is applied to found the ini/end of every storm
+            * filename (str, optional): name of the output file
 
     Returns:
         dict: the timeseries split by storms that fulfilled the requeriments
@@ -1151,8 +1160,8 @@ def storm_properties(data, cols, info):
     durs_storm_calm["storm_ini"] = ini
     durs_storm_calm["storm_end"] = end
 
-    if "fname" in info.keys():
-        save.to_csv(durs_storm_calm, info["fname"])
+    if "filename" in info.keys():
+        save.to_csv(durs_storm_calm, info["filename"])
 
     return durs_storm_calm
 
@@ -1341,6 +1350,10 @@ def dependencies(df: pd.DataFrame, param: dict):
                 columns=["data"],
             )
             variable[var_] = df[var_].values
+            if param[var_]["transform"]["make"]:
+                variable[var_], _ = stf.transform(variable[var_], param[var_])
+                variable[var_] -= param[var_]["transform"]["min"]
+                variable["data"], _ = stf.transform(variable["data"], param[var_])
             variable["n"] = df["n"].values
             cdfu = stf.cdf(variable, param[var_])
             cdf_umbral = pd.DataFrame(cdfu)
@@ -1461,17 +1474,16 @@ def varfit(data: np.ndarray, order: int):
 
     from statsmodels.tsa.ar_model import AutoReg as AR
     from statsmodels.tsa.vector_ar.var_model import VAR
+    import matplotlib.pyplot as plt
 
+    # data.plot()
+    # plt.show()
     # Create the list of output parameters
     data_ = data.values.T
     [dim, t] = np.shape(data_)
     t = t - order
     bic, r2adj = np.zeros(order), []
-    if dim == 1:
-        model = AR(data)
-    else:
-        model = VAR(data)
-
+    
     par_dt = [list() for i in range(order)]
     for p in range(1, order + 1):
         # Create the matrix of input data for p-order
@@ -1483,7 +1495,11 @@ def varfit(data: np.ndarray, order: int):
         # Estimated the parameters using the ordinary least squared error analysis
         par_dt[p - 1], bic[p - 1], r2a = varfit_OLS(y, z)
         r2adj.append(r2a)
-        res = model.fit(p)
+        if dim == 1:
+            model = AR(data, p)
+        else:
+            model = VAR(data, p)
+        res = model.fit()
         # print(res.summary())
 
         # Computed using statmodels
@@ -1497,7 +1513,7 @@ def varfit(data: np.ndarray, order: int):
     # Select the minimum BIC and return the parameter associated to it
     id_ = np.argmin(bic)
     par_dt = par_dt[id_]
-    par_dt["id"] = int(id_) + 1
+    par_dt["id"] = int(id_)
     par_dt["bic"] = [float(bicValue) for bicValue in bic]
     par_dt["R2adj"] = r2adj[par_dt["id"]]
     logger.info(
@@ -1543,7 +1559,7 @@ def varfit_OLS(y, z):
     df["Q"] = np.cov(df["U"])
     df["y"] = y
     if df["dim"] == 1:
-        error_ = np.random.normal(np.zeros(df["dim"]), df["Q"][0], z.shape[1]).T
+        error_ = np.random.normal(np.zeros(df["dim"]), df["Q"], z.shape[1]).T
     else:
         error_ = np.random.multivariate_normal(
             np.zeros(df["dim"]), df["Q"], z.shape[1]
@@ -1582,7 +1598,7 @@ def varfit_OLS(y, z):
 
     # aic = df['dim']*np.log(np.sum(np.abs(y - np.dot(df['B'], z)))) + 2*nel
     # Compute the BIC
-    bic = -2 * llf + np.log(np.size(y)) * np.size(np.hstack((df["B"], df["Q"])))
+    bic = -2 * llf + np.log(np.size(y)) * np.size(np.hstack((df["B"][0], df["Q"])))
 
     return df, bic, R2adj.tolist()
 
@@ -1814,5 +1830,5 @@ def generate_outputfilename(parameters):
         filename += "_" + str(parameters["basis_function"]["degree"])
     filename += "_" + parameters["optimization"]["method"]
 
-    parameters["file_name"] = filename
+    parameters["file_name"] = "marginalfit/" + filename + ".json"
     return
