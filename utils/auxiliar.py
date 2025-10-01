@@ -13,42 +13,49 @@ from scipy.optimize import minimize
 
 
 def max_moving(data: pd.DataFrame, dur: int):
-    """Selects the peaks of the time series for a given duration
+
+    """Selects the peaks of the time series for a given window duration.
 
     Args:
-        - data (pd.DataFrame): timeseries
-        - dur(int): duration of the moving window
+        data (pd.DataFrame): Time series.
+        dur (int): Duration of the moving window.
 
     Returns:
-        - results (pd.DataFrame): peaks and time of maximum values
+        pd.DataFrame: Peaks and time of maximum values.
     """
 
     n = len(data)
-    id_ = []
+    id_ = []  # List to store indices of detected peaks
+    # Slide a window of length 'dur' across the data
     for k in range(0, n - dur + 1):
+        # Find the index of the maximum value within the current window
         idx = data.iloc[k : k + dur + 1].idxmax()
+        # Only select the peak if it is at the center of the window
         if idx == data.index[k + int(dur / 2)]:
             id_.append(idx)
 
+    # Create a DataFrame with the selected peaks
     results = pd.DataFrame(data.loc[id_], index=id_)
     return results
 
 
 def gaps(data, variables, fname="gaps", buoy=False):
-    """Creates a table with the main characteristics of gaps for variables
+
+    """Creates a table with the main characteristics of gaps for variables.
 
     Args:
-        * data (pd.DataFrame): time series
-        * variables (string): with the variables where gap-info is required
-        * fname (string): name of the output file with the information table
+        data (pd.DataFrame): Time series.
+        variables (str or list): Variables for which gap info is required.
+        fname (str): Name of the output file with the information table.
 
     Returns:
-        * tbl_gaps (pd.DataFrame): gaps info
+        pd.DataFrame: Gaps information.
     """
 
     if not isinstance(variables, list):
-        variables = [variables]
+        variables = [variables]  # Ensure variables is a list
 
+    # Define columns for the output table depending on whether it's buoy data
     if not buoy:
         columns_ = [
             "Cadency (min)",
@@ -71,6 +78,7 @@ def gaps(data, variables, fname="gaps", buoy=False):
             "Quality data (%)",
         ]
 
+    # Initialize the output DataFrame
     tbl_gaps = pd.DataFrame(
         0,
         columns=columns_,
@@ -79,16 +87,21 @@ def gaps(data, variables, fname="gaps", buoy=False):
     tbl_gaps.index.name = "var"
 
     for i in variables:
-        dt_nan = data[i].dropna()
+        dt_nan = data[i].dropna()  # Remove NaNs for the variable
         if buoy:
+            # Count good quality data points if buoy
             quality = np.sum(data.loc[dt_nan.index, "Qc_e"] <= 2)
 
+        # Calculate time differences (in hours) between consecutive non-NaN samples
         dt0 = (dt_nan.index[1:] - dt_nan.index[:-1]).total_seconds() / 3600
+        # Identify gaps as intervals significantly larger than the median
         dt = dt0[dt0 > np.median(dt0) + 0.1].values
         if dt.size == 0:
-            dt = 0
+            dt = 0  # No gaps found
+        # Calculate the most common sampling interval (accuracy)
         acc = st.mode(np.diff(dt_nan.sort_values().unique()))[0]
 
+        # Fill the summary table for this variable
         tbl_gaps.loc[i, "Cadency (min)"] = np.round(st.mode(dt0)[0]*60, decimals=2)
         tbl_gaps.loc[i, "Accuracy*"] = np.round(acc, decimals=2)
         tbl_gaps.loc[i, "Period"] = str(dt_nan.index[0]) + "-" + str(dt_nan.index[-1])
@@ -100,10 +113,12 @@ def gaps(data, variables, fname="gaps", buoy=False):
         tbl_gaps.loc[i, "Max. gap (d)"] = np.round(np.max(dt)/24, decimals=2)
 
         if buoy:
+            # Add percentage of good quality data for buoys
             tbl_gaps.loc[i, "Quality data (%)"] = np.round(
                 quality / len(dt_nan) * 100, decimals=2
             )
 
+    # Save or print the table as requested
     if not fname:
         logger.info(tbl_gaps)
     else:
@@ -119,23 +134,26 @@ def nonstationary_ecdf(
     equal_windows: bool = False,
     pemp: list = None,
 ):
-    """Computes the empirical percentiles selecting a moving window
+
+    """Computes empirical percentiles using a moving window.
 
     Args:
-        * data (pd.DataFrame): time series
-        * variable (string): name of the variable
-        * wlen (float): length of window in days. Defaults to 14 days.
-        * pemp (list, optional): given empirical percentiles
+        data (pd.DataFrame): Time series.
+        variable (str): Name of the variable.
+        wlen (float): Length of window in years (default 14 days).
+        equal_windows (bool): If True, use equal window size.
+        pemp (list, optional): Empirical percentiles to use.
 
     Returns:
-        * res (pd.DataFrame): values of the given non-stationary percentiles
-        * pemp (list): chosen empirical percentiles
+        pd.DataFrame: Values of the given non-stationary percentiles.
+        list: Chosen empirical percentiles.
     """
 
-    timestep = 1 / 365.25
+    timestep = 1 / 365.25  # Default timestep: daily in years
     if equal_windows:
-        timestep = wlen
+        timestep = wlen  # Use window length as timestep if requested
 
+    # Choose default percentiles if not provided, with special cases for some variables
     if pemp is None:
         pemp = np.array([0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99])
         if variable.lower().startswith("d") | (variable == "Wd"):
@@ -143,38 +161,44 @@ def nonstationary_ecdf(
         if (variable == "Hs") | (variable == "Hm0"):
             pemp = np.array([0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 0.99, 0.995])
 
-    # res = pd.DataFrame(0, index=np.arange(0, 1, timestep), columns=pemp)
+    # Create result DataFrame: rows are unique normalized times, columns are percentiles
     res = pd.DataFrame(0, index=data.n.unique(), columns=pemp)
 
+    # For each time index, compute percentiles in a moving window
     for i in res.index:
         if i >= (1 - wlen):
+            # Handle window at the end of the time series (wrap-around)
             final_offset = i + wlen - 1
             mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
                 data["n"] <= final_offset
             )
         elif i <= wlen:
+            # Handle window at the start of the time series (wrap-around)
             initial_offset = i - wlen
             mask = ((data["n"] >= i - wlen) & (data["n"] <= i + wlen)) | (
                 data["n"] >= 1 + initial_offset
             )
         else:
+            # Standard window in the middle
             mask = (data["n"] >= i - wlen) & (data["n"] <= i + wlen)
+        # Compute percentiles for the window
         res.loc[i, pemp] = data[variable].loc[mask].quantile(q=pemp).values
 
     return res, pemp
 
 
 def best_params(data: pd.DataFrame, bins: int, distrib: str, tail: bool = False):
-    """Computes the best parameters of a simple probability model attending to the rmse of the pdf
+
+    """Computes the best parameters of a simple probability model based on the RMSE of the PDF.
 
     Args:
-        * data (pd.DataFrame): raw time series
-        * bins (int): no. of bins for the histogram
-        * distrib (string): name of the probability model
-        * tail (bool, optional): If it is fit a tail or not. Defaults to False.
+        data (pd.DataFrame): Raw time series.
+        bins (int): Number of bins for the histogram.
+        distrib (str): Name of the probability model.
+        tail (bool, optional): If True, fit only the tail. Defaults to False.
 
     Returns:
-        * params (list): the estimated parameters
+        list: The estimated parameters.
     """
 
     dif_, sser = 1e2, 1e3
@@ -194,15 +218,16 @@ def best_params(data: pd.DataFrame, bins: int, distrib: str, tail: bool = False)
 
 
 def ecdf(df: pd.DataFrame, variable: str, no_perc: int or bool = False):
-    """Computes the empirical cumulative distribution function
+
+    """Computes the empirical cumulative distribution function (ECDF).
 
     Args:
-        * df (pd.DataFrame): raw time series
-        * variable (pd.DataFrame): name of the variable
-        * no_perc (optional, False|integer): number of empirical percentiles to be interpolated. Defaults all data
+        df (pd.DataFrame): Raw time series.
+        variable (str): Name of the variable.
+        no_perc (int or bool, optional): Number of empirical percentiles to interpolate. Defaults to all data.
 
     Returns:
-        * dfs (pd.DataFrame): sorted values of the time series and the non-excedence probability of every value
+        pd.DataFrame: Sorted values of the time series and the non-exceedance probability of each value.
     """
     dfs = df[variable].sort_values().to_frame()
     dfs.index = np.arange(1, len(dfs) + 1) / (len(dfs) + 1)
@@ -216,16 +241,17 @@ def ecdf(df: pd.DataFrame, variable: str, no_perc: int or bool = False):
 def nonstationary_epdf(
     data: pd.DataFrame, variable: str, wlen: float = 14 / 365.25, no_values: int = 14
 ):
-    """Computes the empirical percentiles selecting a moving window
+
+    """Computes the empirical PDF using a moving window.
 
     Args:
-        * data (pd.DataFrame): time series
-        * variable (string): name of the variable
-        * wlen (float): length of window in days. Defaults to 14 days.
+        data (pd.DataFrame): Time series.
+        variable (str): Name of the variable.
+        wlen (float): Length of window in years (default 14 days).
+        no_values (int): Number of values for the PDF.
 
     Returns:
-        * res (pd.DataFrame): values of the given non-stationary percentiles
-        * pemp (list): chosen empirical percentiles
+        pd.DataFrame: Values of the non-stationary PDF.
     """
 
     nlen = len(data)
@@ -265,15 +291,16 @@ def nonstationary_epdf(
 
 
 def epdf(df: pd.DataFrame, variable: str, no_values: int = 14):
-    """Computes the empirical probability distribution function
+
+    """Computes the empirical probability distribution function (PDF).
 
     Args:
-        * df (pd.DataFrame): raw time series
-        * variable (pd.DataFrame): name of the variable
-        * no_values (optional, False|integer): number of empirical percentiles to be interpolated. Defaults all data
+        df (pd.DataFrame): Raw time series.
+        variable (str): Name of the variable.
+        no_values (int, optional): Number of empirical percentiles to interpolate. Defaults to 14.
 
     Returns:
-        * dfs (pd.DataFrame): sorted values of the time series and the probability
+        pd.DataFrame: Sorted values of the time series and the probability.
     """
     dfs = df[variable].sort_values().to_frame()
     dfs["prob"] = np.arange(1, len(dfs) + 1)
@@ -297,14 +324,15 @@ def epdf(df: pd.DataFrame, variable: str, no_values: int = 14):
 
 
 def acorr(data, maxlags=24):
-    """[summary]
+
+    """Computes the autocorrelation of a time series.
 
     Args:
-        data ([type]): [description]
-        maxlags (int, optional): [description]. Defaults to 24.
+        data (array-like): Input time series.
+        maxlags (int, optional): Maximum number of lags. Defaults to 24.
 
     Returns:
-        [type]: [description]
+        tuple: Lags and autocorrelation values.
     """
 
     lags, c_, _, _ = plt.acorr(data, usevlines=False, maxlags=maxlags, normed=True)
@@ -314,15 +342,16 @@ def acorr(data, maxlags=24):
 
 
 def bidimensional_ecdf(data1, data2, nbins):
-    """Compute the empirical 2d CDF
+
+    """Compute the empirical 2D cumulative distribution function (CDF).
 
     Args:
-        data1 ([type]): data of first variable
-        data2 ([type]): data of second variable
-        nbins ([type]): number of bins
+        data1 (array-like): Data of the first variable.
+        data2 (array-like): Data of the second variable.
+        nbins (int): Number of bins.
 
     Returns:
-        [type]: [description]
+        tuple: Meshgrid of x, y, and the empirical CDF values.
     """
     f, xedges, yedges = np.histogram2d(data1, data2, bins=nbins)
     Fe = np.cumsum(np.cumsum(f, axis=0), axis=1) / (np.sum(f) + 1)
@@ -337,21 +366,22 @@ def bidimensional_ecdf(data1, data2, nbins):
 def get_params_by_labels(
     df, param, par, imod, cossen, first=None, pos=[0, 0, 0], ppf=False
 ):
-    """Gets the parameters of the probability models by its name
+
+    """Get the parameters of the probability models by their name.
 
     Args:
-        * df (pd.DataFrame): raw data
-        * param (dict): the parameters of the analysis
-        * par (dict): the guess parameters of the probability model
-        * imod (list): combination of modes for fitting
-        * cossen (np.ndarray): the variability of the modes
-        * first (boolean or None, optional): For fitting of first or n-order. Defaults to None (n-order).
-        * pos (list, optional): location of the different probability models. Defaults to [0, 0, 0].
-        * ppf (bool, optional): True if it is required the numerically computation of the cdf in a mesh. Defaults to False.
+        df (pd.DataFrame): Raw data.
+        param (dict): Parameters of the analysis.
+        par (dict): Initial guess parameters of the probability model.
+        imod (list): Combination of modes for fitting.
+        cossen (np.ndarray): Variability of the modes.
+        first (bool or None, optional): For fitting of first or n-order. Defaults to None (n-order).
+        pos (list, optional): Location of the different probability models. Defaults to [0, 0, 0].
+        ppf (bool, optional): If True, compute the CDF numerically on a mesh. Defaults to False.
 
     Returns:
-        * df (pd.DataFrame): the parameters
-        * esc (list): weight of the probability models
+        pd.DataFrame: The parameters.
+        list: Weights of the probability models.
     """
 
     for i in param["fun"].keys():
@@ -595,19 +625,20 @@ def bias_adjustment(
     quantiles=[0.1, 0.9],
     params=None,
 ):
-    """IT IS REQUIRED THE SAME NUMBER OF VALUES FOR OBSERVED AND HISTORICAL DATA
+    """
+    Bias adjustment for climate data using parametric quantile mapping.
 
     Args:
-        obs ([type]): [description]
-        hist ([type]): [description]
-        rcp ([type]): [description]
-        variable ([type]): [description]
-        funcs (list, optional): [description]. Defaults to ["gumbel_l", "gumbel_r"].
-        quantiles (list, optional): [description]. Defaults to [0.1, 0.9].
-        params ([type], optional): [description]. Defaults to None.
+        obs (pd.DataFrame): Observed data.
+        hist (pd.DataFrame): Historical simulation data.
+        rcp (pd.DataFrame): Scenario/projection data.
+        variable (str): Variable name to adjust.
+        funcs (list, optional): List of distribution names. Defaults to ["gumbel_l", "gumbel_r"].
+        quantiles (list, optional): Quantiles for tail adjustment. Defaults to [0.1, 0.9].
+        params (dict, optional): Precomputed distribution parameters. Defaults to None.
 
     Returns:
-        [type]: [description]
+        tuple: (hist, rcp) with bias-adjusted values in column 'unbiased'.
     """
     funcs = funcs.copy()
     for index, fun in enumerate(funcs):
@@ -734,17 +765,18 @@ def bias_adjustment(
 
 
 def probability_mapping(obs, hist, rcp, variable, func):
-    """[summary]
+    """
+    Apply parametric probability mapping for bias correction.
 
     Args:
-        obs ([type]): [description]
-        hist ([type]): [description]
-        rcp ([type]): [description]
-        variable ([type]): [description]
-        func ([type]): [description]
+        obs (pd.DataFrame): Observed data.
+        hist (pd.DataFrame): Historical simulation data.
+        rcp (pd.DataFrame): Scenario/projection data.
+        variable (str): Variable name to adjust.
+        func (str): Name of the distribution to use.
 
     Returns:
-        [type]: [description]
+        tuple: (hist, rcp) with bias-adjusted values in column 'unbiased'.
     """
 
     func = getattr(st, func)
@@ -759,13 +791,17 @@ def probability_mapping(obs, hist, rcp, variable, func):
 
 
 def empirical_cdf_mapping(obs, hist, rcp, variable):
-    """[summary]
+    """
+    Apply empirical CDF mapping for bias correction.
 
     Args:
-        obs ([type]): [description]
-        hist ([type]): [description]
-        rcp ([type]): [description]
-        variable ([type]): [description]
+        obs (pd.DataFrame): Observed data.
+        hist (pd.DataFrame): Historical simulation data.
+        rcp (pd.DataFrame): Scenario/projection data.
+        variable (str): Variable name to adjust.
+
+    Returns:
+        tuple: (hist, rcp) with bias-adjusted values in column 'unbiased'.
     """
 
     n_obs = len(obs)
@@ -797,28 +833,30 @@ def empirical_cdf_mapping(obs, hist, rcp, variable):
 
 
 def rotate_geo2nav(ang):
-    """Rotate angles from geographical (0º pointing to the East, 90º pointing to the North) to navigational (0º pointing to the North, 90º pointing to the East)
+    """
+    Convert angles from geographic (0°=East, 90°=North) to navigational (0°=North, 90°=East).
 
     Args:
-        * ang (pd.DataFrame or np.array): vector with the angles
+        ang (array-like): Array or Series of angles in degrees.
 
-    Return:
-        rotated angles
+    Returns:
+        np.ndarray: Rotated angles in degrees.
     """
     ang = np.fmod(270 - ang + 360, 360)
     return ang
 
 
 def uv2Uang(u, v, labels=["u", "ang"]):
-    """[summary]
+    """
+    Convert u, v wind or current components to magnitude and direction.
 
     Args:
-        u ([type]): [description]
-        v ([type]): [description]
-        labels (list, optional): [description]. Defaults to ['u', 'ang'].
+        u (array-like): Zonal component.
+        v (array-like): Meridional component.
+        labels (list, optional): Output column names. Defaults to ['u', 'ang'].
 
     Returns:
-        [type]: [description]
+        pd.DataFrame: DataFrame with magnitude and direction columns.
     """
     ang = np.fmod(np.arctan2(v, u) * 180 / np.pi + 360, 360)
     data = pd.DataFrame(
@@ -827,73 +865,111 @@ def uv2Uang(u, v, labels=["u", "ang"]):
     return data
 
 
-def optimize_rbf_epsilon(coords, data, num, method="gaussian", smooth=0.5, eps0=1):
-    """[summary]
+def optimize_rbf_epsilon(coords, data, n_train, method="gaussian", smooth=0.5, eps0=1, optimizer="local", metric="rmse"):
+    """
+    Optimize epsilon and smooth parameters for RBF by minimizing validation error (RMSE or MAE).
+    Allows local (SLSQP) or global (differential_evolution) optimization.
 
     Args:
-        coords ([type]): [description]
-        data ([type]): [description]
-        num ([type]): [description]
-        method (str, optional): [description]. Defaults to 'gaussian'.
-        smooth (float, optional): [description]. Defaults to 0.5.
-        eps0 (int, optional): [description]. Defaults to 1.
+        coords (np.ndarray): Input coordinates (n_samples, n_features).
+        data (np.ndarray): Target values (n_samples,).
+        n_train (int): Number of samples for training (rest for validation).
+        method (str, optional): RBF function type. Default 'gaussian'.
+        smooth (float, optional): Initial smooth value. Default 0.5.
+        eps0 (float, optional): Initial epsilon value. Default 1.
+        optimizer (str, optional): 'local' (SLSQP) or 'global' (differential_evolution).
+        metric (str, optional): 'rmse' or 'mae'.
 
     Returns:
-        [type]: [description]
+        tuple: (epsilon_opt, smooth_opt)
     """
+    from scipy.optimize import minimize, differential_evolution
+    min_epsilon = 1e-3
+    max_epsilon = 1e5
+    min_smooth = 1e-6
+    max_smooth = 10.0
+    bounds = [(min_epsilon, max_epsilon), (min_smooth, max_smooth)]
 
-    res_ = minimize(
-        rmse_rbf,
-        eps0,
-        args=(coords, data, num, method, smooth),
-        bounds=[[1e-9, 1e5]],
-        method="SLSQP",
-        options={"ftol": 1e-7, "eps": 1e-4, "maxiter": 1e4},
-    )
-    # print(res_)
-    return res_["x"]
+    # Selección aleatoria de muestras para ajuste y validación
+    rng = np.random.default_rng()
+    indices = np.arange(coords.shape[0])
+    rng.shuffle(indices)
+    train_idx = indices[:n_train]
+    valid_idx = indices[n_train:]
+
+    def objective(params):
+        return rbf_error_metric(params, coords, data, train_idx, valid_idx, method, metric)
+
+    try:
+        if optimizer == "global":
+            res_ = differential_evolution(objective, bounds, polish=True, tol=1e-5, maxiter=100)
+        else:
+            res_ = minimize(
+                objective,
+                [eps0, smooth],
+                bounds=bounds,
+                method="SLSQP",
+                options={"ftol": 1e-7, "eps": 1e-4, "maxiter": 1e4},
+            )
+        if isinstance(res_["x"], (np.ndarray, list)) and len(res_["x"]) == 2:
+            epsilon_opt, smooth_opt = float(res_["x"][0]), float(res_["x"][1])
+        else:
+            epsilon_opt, smooth_opt = float(res_["x"]), smooth
+        print(f"[optimize_rbf_epsilon] {optimizer} | metric={metric} | Success: {res_.get('success', False)}, epsilon_opt={epsilon_opt}, smooth_opt={smooth_opt}, fun={res_.get('fun', None)}")
+        return epsilon_opt, smooth_opt
+    except Exception as e:
+        print(f"Warning: optimize_rbf_epsilon failed ({e}), using epsilon=1.0, smooth={smooth}")
+        return 1.0, smooth
 
 
-def rmse_rbf(eps0, coords, data, num, method, smooth):
-    """[summary]
+
+
+def rbf_error_metric(params, coords, data, train_idx, valid_idx, method, metric="rmse"):
+    """
+    Compute the error of an RBF for given epsilon and smooth values.
 
     Args:
-        eps0 ([type]): [description]
-        coords ([type]): [description]
-        data ([type]): [description]
-        num ([type]): [description]
-        method ([type]): [description]
-        smooth ([type]): [description]
+        params (list): [epsilon, smooth].
+        coords (np.ndarray): Input coordinates.
+        data (np.ndarray): Target values.
+        train_idx (array): Indices for training samples.
+        valid_idx (array): Indices for validation samples.
+        method (str): RBF function type.
+        metric (str): 'rmse' or 'mae'.
 
     Returns:
-        [type]: [description]
+        float: Error value (RMSE or MAE).
     """
+    epsilon, smooth = params
+    
+    # Reordenar los conjuntos de entrenamiento y validación
     func = Rbf(
-        *coords[:num, :].T, data[:num], function=method, smooth=smooth, epsilon=eps0
+        *coords[train_idx, :].T, data[train_idx], function=method, smooth=smooth, epsilon=epsilon
     )
-    Vdt = func(*coords[num:, :].T)
-
-    # func = Rbf(coords[:num, :], data[:num, :], function=method, smooth=smooth, epsilon=eps0)
-    # Vdt = func(coords[num:, :])
-    error = np.sqrt(1 / len(Vdt) * np.sum((Vdt - data[num:]) ** 2))
-    # error = 1/len(Vdt)*np.sum(np.abs(Vdt - data[num:]))
-    # print(eps0, error)
+    validation = func(*coords[valid_idx, :].T)
+    if metric == "mae":
+        error = np.mean(np.abs(validation - data[valid_idx]))
+    else:
+        error = np.sqrt(np.mean((validation - data[valid_idx]) ** 2))
+        if np.isnan(error).any():
+            error = 1e10  # Penalización por NaN
     return error
 
 
 def outliers_detection(
     data, outliers_fraction, method="Local Outlier Factor", scaler="MinMaxScaler"
 ):
-    """[summary]
+    """
+    Detect outliers in data using various algorithms.
 
     Args:
-        data ([type]): [description]
-        outliers_fraction ([type]): [description]
-        method (str, optional): [description]. Defaults to "Local Outlier Factor".
-        scaler (str, optional): [description]. Defaults to "MinMaxScaler".
+        data (array-like): Input data.
+        outliers_fraction (float): Fraction of outliers to detect.
+        method (str, optional): Outlier detection method. Defaults to "Local Outlier Factor".
+        scaler (str, optional): Scaling method. Defaults to "MinMaxScaler".
 
     Returns:
-        [type]: [description]
+        array: Outlier mask or labels.
     """
 
     from sklearn import svm
@@ -938,15 +1014,17 @@ def outliers_detection(
 
 
 def scaler(data, method="MinMaxScaler", transform=True, scale=False):
-    """[summary]
+    """
+    Scale or inverse-scale data using sklearn scalers.
 
     Args:
-        data ([type]): [description]
-        method (str, optional): [description]. Defaults to "MinMaxScaler".
-        transform (bool, optional): [description]. Defaults to True.
+        data (array-like or pd.DataFrame): Data to scale.
+        method (str, optional): Scaling method. Defaults to "MinMaxScaler".
+        transform (bool, optional): If True, transform; if False, inverse transform. Defaults to True.
+        scale (sklearn scaler, optional): Pre-fitted scaler to use. Defaults to False.
 
     Returns:
-        [type]: [description]
+        tuple: (transformed_data, scaler)
     """
     from sklearn.preprocessing import (MinMaxScaler, RobustScaler,
                                        StandardScaler)
