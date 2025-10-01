@@ -891,42 +891,57 @@ def check_marginal_params(param: dict):
 def nanoise(
     data: pd.DataFrame, variable: str, remove: bool = False, filter_: str = None
 ):
-    """Adds noise to time series for better estimations
+    """Adds small random noise to the selected variable(s) in a time series for better estimations.
 
     Args:
-        * data (pd.DataFrame): raw time series
-        * variable (string): variable to apply noise
-        * remove (bool): if True filtered data is removed
-        * filter_ (list): lower limit of values to be filtered. See query pandas DataFrame.
+        data (pd.DataFrame): Raw time series.
+        variable (str or list): Variable(s) to apply noise to.
+        remove (bool): If True, rows filtered by `filter_` are removed from the output.
+        filter_ (str, optional): Query string to filter the DataFrame before adding noise.
 
     Returns:
-        * df_out (pd.DataFrame): time series with noise
+        pd.DataFrame: DataFrame with noise added to the selected variable(s).
     """
+    import numpy as np
+    import pandas as pd
 
     if isinstance(data, pd.Series):
         data = data.to_frame()
 
+    df_out = data.copy()
+
     if isinstance(variable, str):
         variable = [variable]
 
-    # Filtering data
+    # Optional filtering before adding noise
     if filter_ is not None:
-        data = data.query(filter_)
+        filtered_idx = df_out.query(filter_).index
+    else:
+        filtered_idx = df_out.index
 
-    # Remove nans
+
     for var_ in variable:
-        df = data[var_].dropna().to_frame()
-        if not df.empty:
-            increments = st.mode(np.diff(np.sort(data[var_].unique())))[0]
-            df[var_] = df[var_] + np.random.rand(len(df[var_])) * increments
+        # Only operate on non-NaN values in the filtered subset
+        idx_valid = df_out.loc[filtered_idx, var_].dropna().index
+        if len(idx_valid) == 0:
+            raise ValueError(f"Input time series for variable '{var_}' is empty after filtering.")
+        unique_vals = np.sort(df_out.loc[idx_valid, var_].unique())
+        if len(unique_vals) > 1:
+            increments = st.mode(np.diff(unique_vals))[0]
         else:
-            raise ValueError("Input time series is empty.")
+            increments = 1e-6  # fallback small noise if all values are identical
+        noise = np.random.rand(len(idx_valid)) * increments
+        df_out.loc[idx_valid, var_] += noise
 
-    # Removing data
-    if remove:
-        df = df.loc[df[variable] == filter_, variable]
+    # Eliminar todos los NaNs
+    df_out = df_out.dropna()
 
-    return df
+
+    # Optionally remove filtered rows from output
+    if remove and filter_ is not None:
+        df_out = df_out.drop(filtered_idx)
+
+    return df_out
 
 
 def look_models(data, variable, percentiles=[1], fname="models_out", funcs="natural"):
@@ -1165,25 +1180,6 @@ def storm_properties(data, cols, info):
 
     return durs_storm_calm
 
-
-def normalize(data, variables, circular=False):
-    """Normalizes data using the maximum distance between values
-
-    Args:
-        * data (pd.DataFrame): raw time series
-
-    Returns:
-        * datan (pd.DataFrame): normalized variable
-    """
-
-    datan = data.copy()
-    for i in variables:
-        if circular:
-            datan[i] = np.deg2rad(data[i]) / np.pi
-        else:
-            datan[i] = (data[i] - data[i].min()) / (data[i].max() - data[i].min())
-
-    return datan
 
 
 def dependencies(df: pd.DataFrame, param: dict):
