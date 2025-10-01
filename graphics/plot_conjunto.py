@@ -210,7 +210,7 @@ def plot_copula(copula, ax=None, labels=[], file_name: str = None, log: bool = F
 
     nlen, nlent = 1000, 1000
 
-    ax = handle_axis(ax)
+    fig, ax = handle_axis(ax)
 
     data1 = copula.X
     data2 = copula.Y
