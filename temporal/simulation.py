@@ -202,7 +202,7 @@ def simulation(
                 # Generate the i-storm
                 zsim = var_simulation(param["TD"], int(dstorm / factor) + 1, "normal")
                 df_zsim.loc[:, param["TS"]["vars"]] = zsim
-                df = df.append(df_zsim)
+                df = pd.concat([df, df_zsim])
 
                 index[season] = index[season] + 1
                 ini = end_i
@@ -276,7 +276,7 @@ def simulation(
                     res = stf.ensemble_ppf(dfj, param, var_, param["TS"]["nodes"])
                 else:
                     res = pd.DataFrame(
-                        stf.ppf(dfj, param[var_], ppf=True),
+                        stf.ppf(dfj, param[var_]), #, ppf=True),
                         index=dfj.index,
                         columns=[var_],
                     )
@@ -284,14 +284,21 @@ def simulation(
 
                 # Compute the inverse of the power transform if it is required
                 # Transformed timeserie
-                if param["EA"]["make"]:
+                if param[var_]["transform"]["make"]:
                     if "scale" in param:
                         df[var_] = df[var_] * param[var_]["scale"]
 
-                    df[var_] = df[var_] + param["EA"]["min_ensemble"]
-                    df[var_] = stf.inverse_transform(df[[var_]], param["EA"], True)
-                elif "scale" in param:
-                    df[var_] = df[var_] * param[var_]["scale"]
+                    df[var_] = df[var_] + param[var_]["transform"]["min"]
+                    df[var_] = stf.inverse_transform(
+                        df[[var_]], param[var_])
+                # if param["EA"]["make"]:
+                #     if "scale" in param:
+                #         df[var_] = df[var_] * param[var_]["scale"]
+
+                #     df[var_] = df[var_] + param["EA"]["min_ensemble"]
+                #     df[var_] = stf.inverse_transform(df[[var_]], param["EA"], True)
+                # elif "scale" in param:
+                #     df[var_] = df[var_] * param[var_]["scale"]
 
         else:
             # Make the full simulation
@@ -511,11 +518,11 @@ def var_simulation(par: dict, lsim: int, distribution: str):
     """
 
     dim = par["dim"]
-    ord_ = par["id"]
+    ord_ = par["id"]+1
     zsim = np.zeros([dim, lsim])
     if distribution == "normal":  # TODO: some other non-normal multivariate analysis
         if dim == 1:
-            y = np.random.normal(np.zeros(dim), np.sqrt(par["Q"][0]), lsim)
+            y = np.random.normal(np.zeros(dim), np.sqrt(par["Q"]), lsim)
             y = y[:, np.newaxis].T
         else:
             y = np.random.multivariate_normal(np.zeros(dim), par["Q"], lsim).T
