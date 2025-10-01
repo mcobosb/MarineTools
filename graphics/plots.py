@@ -63,7 +63,7 @@ def plot_mda(data, cases, variables, title=None, ax=None, fname=None):
         _, ax = handle_axis(ax)
 
     elif len(variables) == 3:
-        ax = handle_axis(ax, dim=3)
+        _, ax = handle_axis(ax, dim=3)
 
         ax.scatter(
             data[variables[0]].values,
