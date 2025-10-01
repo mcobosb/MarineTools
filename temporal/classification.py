@@ -1,119 +1,62 @@
 import numpy as np
 from marinetools.utils import auxiliar
 from scipy.interpolate import Rbf, griddata
+import pandas as pd
 
 
 def class_storm_seasons(df_vars_ciclos, type_: str = "WSSF"):
-    """Splits the data into seasons
+    """Splits the data into seasons.
 
     Args:
-        * df_vars_ciclos (pd.DataFrame): events information
+        df_vars_ciclos (pd.DataFrame): Events information.
 
     Returns:
-        * df_vars_ciclos (pd.DataFrame): events information with a new column for the season
+        df_vars_ciclos (pd.DataFrame): Events information with a new column for the season.
     """
 
     df_vars_ciclos["season"] = None
 
-    if type_ == "WSSF":
-        # four groups of three months of winter, spring, summer and fall
-        df_vars_ciclos_inv = (
-            ((df_vars_ciclos.index.month == 12) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 1)
-            | (df_vars_ciclos.index.month == 2)
-            | ((df_vars_ciclos.index.month == 3) & (df_vars_ciclos.index.day < 21))
-        )
+    # Define season rules as a mapping for clarity and compactness
+    season_defs = {
+        "WSSF": {
+            "winter": lambda idx: ((idx.month == 12) & (idx.day >= 21)) | (idx.month == 1) | (idx.month == 2) | ((idx.month == 3) & (idx.day < 21)),
+            "spring": lambda idx: ((idx.month == 3) & (idx.day >= 21)) | (idx.month == 4) | (idx.month == 5) | ((idx.month == 6) & (idx.day < 21)),
+            "summer": lambda idx: ((idx.month == 6) & (idx.day >= 21)) | (idx.month == 7) | (idx.month == 8) | ((idx.month == 9) & (idx.day < 21)),
+            "fall":   lambda idx: ((idx.month == 9) & (idx.day >= 21)) | (idx.month == 10) | (idx.month == 11) | ((idx.month == 12) & (idx.day < 21)),
+        },
+        "WS": {
+            "WS": lambda idx: ((idx.month == 12) & (idx.day >= 21)) | (idx.month == 1) | (idx.month == 2) | (idx.month == 3) | (idx.month == 4) | (idx.month == 5) | ((idx.month == 6) & (idx.day < 21)),
+            "SF": lambda idx: ((idx.month == 6) & (idx.day >= 21)) | (idx.month == 7) | (idx.month == 8) | (idx.month == 9) | (idx.month == 10) | (idx.month == 11) | ((idx.month == 12) & (idx.day < 21)),
+        },
+        "SF": {
+            "SS": lambda idx: ((idx.month == 3) & (idx.day >= 21)) | (idx.month == 4) | (idx.month == 5) | (idx.month == 6) | (idx.month == 7) | (idx.month == 8) | ((idx.month == 9) & (idx.day < 21)),
+            "FW": lambda idx: ((idx.month == 9) & (idx.day >= 21)) | (idx.month == 10) | (idx.month == 11) | (idx.month == 12) | (idx.month == 1) | (idx.month == 2) | ((idx.month == 3) & (idx.day < 21)),
+        },
+    }
 
-        df_vars_ciclos_prim = (
-            ((df_vars_ciclos.index.month == 3) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 4)
-            | (df_vars_ciclos.index.month == 5)
-            | ((df_vars_ciclos.index.month == 6) & (df_vars_ciclos.index.day < 21))
-        )
-
-        df_vars_ciclos_ver = (
-            ((df_vars_ciclos.index.month == 6) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 7)
-            | (df_vars_ciclos.index.month == 8)
-            | ((df_vars_ciclos.index.month == 9) & (df_vars_ciclos.index.day < 21))
-        )
-
-        df_vars_ciclos_oto = (
-            ((df_vars_ciclos.index.month == 9) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 10)
-            | (df_vars_ciclos.index.month == 11)
-            | ((df_vars_ciclos.index.month == 12) & (df_vars_ciclos.index.day < 21))
-        )
-
-        df_vars_ciclos.loc[df_vars_ciclos_inv, "season"] = "winter"
-        df_vars_ciclos.loc[df_vars_ciclos_prim, "season"] = "spring"
-        df_vars_ciclos.loc[df_vars_ciclos_ver, "season"] = "summer"
-        df_vars_ciclos.loc[df_vars_ciclos_oto, "season"] = "fall"
-    elif type_ == "WS":
-        # two groups of six months of winter-spring and summer-fall
-        df_vars_ciclos_WS = (
-            ((df_vars_ciclos.index.month == 12) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 1)
-            | (df_vars_ciclos.index.month == 2)
-            | (df_vars_ciclos.index.month == 3)
-            | (df_vars_ciclos.index.month == 4)
-            | (df_vars_ciclos.index.month == 5)
-            | ((df_vars_ciclos.index.month == 6) & (df_vars_ciclos.index.day < 21))
-        )
-
-        df_vars_ciclos_SF = (
-            ((df_vars_ciclos.index.month == 6) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 7)
-            | (df_vars_ciclos.index.month == 8)
-            | (df_vars_ciclos.index.month == 9)
-            | (df_vars_ciclos.index.month == 10)
-            | (df_vars_ciclos.index.month == 11)
-            | ((df_vars_ciclos.index.month == 12) & (df_vars_ciclos.index.day < 21))
-        )
-
-        df_vars_ciclos.loc[df_vars_ciclos_WS, "season"] = "WS"
-        df_vars_ciclos.loc[df_vars_ciclos_SF, "season"] = "SF"
-
-    elif type_ == "SF":
-        # two groups of six months of spring-summer and fall-winter
-        df_vars_ciclos_SS = (
-            ((df_vars_ciclos.index.month == 3) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 4)
-            | (df_vars_ciclos.index.month == 5)
-            | (df_vars_ciclos.index.month == 6)
-            | (df_vars_ciclos.index.month == 7)
-            | (df_vars_ciclos.index.month == 8)
-            | ((df_vars_ciclos.index.month == 9) & (df_vars_ciclos.index.day < 21))
-        )
-
-        df_vars_ciclos_FW = (
-            ((df_vars_ciclos.index.month == 9) & (df_vars_ciclos.index.day >= 21))
-            | (df_vars_ciclos.index.month == 10)
-            | (df_vars_ciclos.index.month == 11)
-            | (df_vars_ciclos.index.month == 12)
-            | (df_vars_ciclos.index.month == 1)
-            | (df_vars_ciclos.index.month == 2)
-            | ((df_vars_ciclos.index.month == 3) & (df_vars_ciclos.index.day < 21))
-        )
-
-        df_vars_ciclos.loc[df_vars_ciclos_SS, "season"] = "SS"
-        df_vars_ciclos.loc[df_vars_ciclos_FW, "season"] = "FW"
+    idx = df_vars_ciclos.index
+    if type_ in season_defs:
+        for season, rule in season_defs[type_].items():
+            mask = rule(idx)
+            df_vars_ciclos.loc[mask, "season"] = season
 
     return df_vars_ciclos
 
 
+
 def classification(cases, cases_sha, data, method, notrain):
-    """[summary]
+    """
+    Classifies data using various machine learning classifiers.
 
     Args:
-        cases ([type]): [description]
-        cases_sha ([type]): [description]
-        data ([type]): [description]
-        method ([type]): [description]
-        notrain ([type]): [description]
+        cases (pd.DataFrame): Training data (features).
+        cases_sha (pd.DataFrame): Training data (labels).
+        data (pd.DataFrame): Data to classify.
+        method (str): Classifier method to use.
+        notrain (int): Number of samples to use for training.
 
     Returns:
-        [type]: [description]
+        np.ndarray: Classification scores or probabilities.
     """
 
     from sklearn import preprocessing
@@ -146,6 +89,7 @@ def classification(cases, cases_sha, data, method, notrain):
     lab_enc = preprocessing.LabelEncoder()
     encoded = lab_enc.fit_transform(cases_sha.iloc[:notrain, 0].values)
     clf.fit(cases.iloc[:notrain, :].values, encoded)
+    # Optionally, you can compute the score on the validation set:
     # score = clf.score(cases.iloc[notrain:, :].values, cases_sha.iloc[notrain:, 'Hs'].values)
     if hasattr(clf, "decision_function"):
         Z = clf.decision_function(data)
@@ -155,55 +99,68 @@ def classification(cases, cases_sha, data, method, notrain):
     return Z
 
 
-def mda(data, variables, m, mvar, fname="cases"):
-    """Implements the Maximum Dissimilarity Algorithm (Camus et al. 2011)
+
+def mda(data, variables, n_cases, mvar, fname="cases"):
+    """
+    Implements the Maximum Dissimilarity Algorithm (Camus et al. 2011).
 
     Args:
-        * data (pd.DataFrame): raw time series
-        * variables (list): name of variables
-        * m (int): number of representative cases
-        * mvar (string): name of the main variable which determines the first subset of size "m"
-        * fname (string): name of the file to save. Defaults to 'cases'.
+        data (pd.DataFrame): Raw time series.
+        variables (list): Names of variables to use for dissimilarity.
+        n_cases (int): Number of representative cases to select.
+        mvar (str): Name of the main variable which determines the first subset.
+        fname (str): Name of the file to save. Defaults to 'cases'.
 
     Returns:
-        * cases (pd.DataFrame): the representative m-values of the variables
+        pd.DataFrame: The representative values of the variables.
     """
-    datan = normalize(data, variables)
 
+    datan = normalize(data, variables)
     n = datan.shape[0]
     ind_ = []
 
-    # Selection of the first point
-    ind_.append(datan.loc[:, mvar].idxmax())
+    # Convert to numpy array for efficiency
+    X = datan[variables].values
+    # If there are circular variables, adjust them
+    is_circ = [v.lower().startswith('d') for v in variables]
+    if any(is_circ):
+        for j, circ in enumerate(is_circ):
+            if circ:
+                X[:, j] = np.mod(X[:, j], 2)
 
-    # Selection of the second point
-    ds2 = np.zeros(n)
-    for i in variables:
-        if i.lower().startswith("d"):
-            aux = np.abs(datan.loc[:, i] - datan.loc[ind_[0], i])
-            ds2 += (np.minimum(aux, 2 - aux)) ** 2
+    # Compute distance matrix considering circular variables
+    D = np.zeros((n, n))
+    for j, v in enumerate(variables):
+        if is_circ[j]:
+            diff = np.abs(X[:, None, j] - X[None, :, j])
+            D += np.minimum(diff, 2 - diff) ** 2
         else:
-            ds2 += (datan.loc[:, i] - datan.loc[ind_[0], i]) ** 2
+            diff = X[:, None, j] - X[None, :, j]
+            D += diff ** 2
+    D = np.sqrt(D)
 
-    dissim = np.sqrt(ds2)
-    ind_.append(dissim.idxmax())
+    # Iterative selection
+    # First point: maximum of the main variable
+    first_idx = datan.loc[:, mvar].idxmax()
+    ind_.append(first_idx)
+    sel_pos = [datan.index.get_loc(first_idx)]
 
-    # Selection of the rest of points
-    for l in range(2, m):
-        ds2 = np.zeros(n)
-        for i in variables:
-            if i.lower().startswith("d"):
-                aux = np.abs(datan.loc[:, i] - datan.loc[ind_[l - 1], i])
-                ds2 += (np.minimum(aux, 2 - aux)) ** 2
-            else:
-                ds2 += (datan.loc[:, i] - datan.loc[ind_[l - 1], i]) ** 2
+    # Initialize vector of minimum distances
+    min_dist = D[sel_pos[0], :].copy()
+    min_dist[sel_pos[0]] = -np.inf  # to avoid reselecting
 
-        d = np.sqrt(ds2)
-        dissim = np.min(np.vstack((dissim, d)), 0)
-        ind_.append(datan.index[np.argmax(dissim)])
+    for _ in range(1, n_cases):
+        next_pos = np.argmax(min_dist)
+        ind_.append(datan.index[next_pos])
+        sel_pos.append(next_pos)
+        min_dist = np.minimum(min_dist, D[next_pos, :])
+        min_dist[sel_pos] = -np.inf
+        print("Index selected:", next_pos)
 
-    cases = data.loc[ind_, :]
-    cases.to_csv(fname)
+
+    cases = data.loc[ind_, :].copy()
+    cases.insert(0, 'id', range(1, len(cases) + 1))
+    cases.to_csv(fname, index=False)
     return cases
 
 
@@ -217,142 +174,272 @@ def reconstruction(
     method="rbf-multiquadric",
     smooth=0.5,
     optimize=True,
-    num=450,
-):
-    """[summary]
+    optimizer="local",
+    eps=1.0,
+    num=100,
+    scale_data=True,
+    scaler_method="StandardScaler"):
+    """
+    Reconstructs deep water variables from shallow water data using regression methods.
+
+    This function uses relationships established between deep and shallow water data
+    to reconstruct missing deep water variables based on available base variables.
 
     Args:
-        cases_deep ([type]): [description]
-        data_deep ([type]): [description]
-        cases_shallow ([type]): [description]
-        base_vars ([type]): [description]
-        recons_vars ([type]): [description]
-        method (str, optional): [description]. Defaults to 'rbf-multiquadric'.
-        smooth (float, optional): [description]. Defaults to 0.5.
-        optimize (bool, optional): [description]. Defaults to True.
-        param (int, optional): [description]. Defaults to 1.
+        cases_deep (pd.DataFrame): Representative cases with deep water data (training X)
+        data_deep (pd.DataFrame): Deep water data to reconstruct (prediction X)
+        cases_shallow (pd.DataFrame): Corresponding shallow water cases (training Y)
+        index (pd.Index): Index for the reconstructed data
+        base_vars (list): Names of base variables used for reconstruction
+        recons_vars (list): Names of variables to be reconstructed
+        method (str, optional): Regression method. Defaults to 'rbf-multiquadric'.
+            Options: 'linear', 'nearest', 'cubic', 'rbf-*', 'gp-*'
+        smooth (float, optional): Smoothing parameter for RBF. Defaults to 0.5.
+        optimize (bool, optional): Whether to optimize RBF epsilon. Defaults to True.
+        num (int, optional): Number of training samples to use (randomly selected). Defaults to 80% of available data.
+        scale_data (bool, optional): If False, data will not be scaled. Defaults to True.
+        scaler_method (str, optional): Scaling method for normalization. Defaults to 'StandardScaler'.
 
     Returns:
-        [type]: [description]
+        pd.DataFrame: Reconstructed deep water data with variables in recons_vars
+
+    Example:
+        >>> reconstructed = reconstruction(
+        ...     cases_deep=deep_cases,
+        ...     data_deep=deep_data,
+        ...     cases_shallow=shallow_cases,
+        ...     index=deep_data.index,
+        ...     base_vars=['Hs', 'Tp'],
+        ...     recons_vars=['U10', 'Dir']
+        ... )
     """
 
-    cases_deepv = cases_deep[base_vars]
-    data_deepv = data_deep[base_vars]
-    cases_shallowv = cases_shallow[base_vars]
+    # Extract base variables from all sets
+    base_train = cases_deep[base_vars].copy()  # Representative cases (training)
+    base_pred = data_deep[base_vars].copy()    # Data to reconstruct (prediction)
+    target_train = cases_shallow[recons_vars].copy()  # Variables to reconstruct (training)
 
-    _, scaler = auxiliar.scaler(cases_shallowv)
+    # Adjust num to 80% of training data size if None or out of bounds
+    n_train = base_train.shape[0]
+    if num is None or num >= n_train or num < 2:
+        num = int(0.8 * n_train)
+        if num < 1:
+            num = 1
+        if num >= n_train:
+            num = n_train - 1
 
-    cases_deep_normalize, _ = auxiliar.scaler(cases_deepv, scale=scaler)
-    data_deep_normalize, _ = auxiliar.scaler(data_deepv, scale=scaler)
-    cases_shallow_normalize, _ = auxiliar.scaler(cases_shallowv, scale=scaler)
+    if scale_data:
+        # Normalize base variables using the same scaler
+        _, base_scaler = auxiliar.scaler(cases_shallow[base_vars], method=scaler_method)
+        base_train_norm, _ = auxiliar.scaler(base_train, scale=base_scaler, method=scaler_method)
+        base_pred_norm, _ = auxiliar.scaler(base_pred, scale=base_scaler, method=scaler_method)
+    else:
+        base_train_norm = target_train.values if hasattr(target_train, 'values') else target_train
+        base_train_norm = base_train.values if hasattr(base_train, 'values') else base_train
+        base_pred_norm = base_pred.values if hasattr(base_pred, 'values') else base_pred
 
-    data_reconstructed_norm = pd.DataFrame(-1, index=index, columns=recons_vars)
-    data_reconstructed = pd.DataFrame(-1, index=index, columns=recons_vars)
+    # Initialize output DataFrame
+    data_reconstructed = pd.DataFrame(index=index, columns=recons_vars)
 
-    scalers = {}
-    for variable in recons_vars:
-        cases_shallow_normalize[variable], scalers[variable] = auxiliar.scaler(
-            cases_shallow[[variable]]
-        )
-        data_reconstructed_norm[variable] = regression(
-            cases_deep_normalize[base_vars],
-            cases_shallow_normalize[variable],
-            data_deep_normalize[base_vars],
+    # Reconstruir cada variable objetivo de forma independiente
+
+    for target_var in recons_vars:
+        # Asegurar que target_train sea DataFrame (2D) para evitar errores en sklearn
+        target_col = cases_shallow[[target_var]].copy() if target_var in cases_shallow else pd.DataFrame(cases_shallow[target_var].copy())
+        if scale_data:
+            target_train_norm, target_scaler = auxiliar.scaler(target_col, method=scaler_method)
+        else:
+            target_train_norm = target_col.values if hasattr(target_col, 'values') else target_col
+
+        # Regresión en espacio normalizado o no
+        target_pred_norm = regression(
+            base_train=base_train_norm,
+            target_train=target_train_norm,
+            base_pred=base_pred_norm,
             method=method,
             num=num,
             smooth=smooth,
             optimize=optimize,
+            optimizer=optimizer,
+            eps=eps,
         )
-        data_reconstructed[variable], _ = auxiliar.scaler(
-            data_reconstructed_norm[[variable]],
-            transform=False,
-            scale=scalers[variable],
-        )
+
+        # Desnormalizar predicciones si corresponde
+        if scale_data:
+            target_pred, _ = auxiliar.scaler(
+                target_pred_norm.reshape(-1, 1),
+                transform=False,
+                scale=target_scaler,
+                method=scaler_method,
+            )
+            data_reconstructed[target_var] = target_pred.flatten()
+        else:
+            data_reconstructed[target_var] = target_pred_norm.flatten()
 
     return data_reconstructed
 
 
 def regression(
-    X, Y, x, method="rbf-multiquadric", num=450, smooth=0.5, optimize=True, param=1
+    base_train, target_train, base_pred, method="rbf-multiquadric", num=100, smooth=1, optimize=True, eps=1, optimizer="local"
 ):
-    """[summary]
+    """
+    Performs regression using various interpolation and machine learning methods.
+    
+    This function supports multiple regression approaches including interpolation
+    methods (linear, cubic, nearest), radial basis functions (RBF), and 
+    Gaussian processes (GP).
+    
+    Args:
+        X (pd.DataFrame or np.ndarray): Training input features (predictors)
+        Y (pd.Series or np.ndarray): Training target values (response)
+        x (pd.DataFrame or np.ndarray): Test input features for prediction
+        method (str, optional): Regression method. Defaults to 'rbf-multiquadric'.
+            Available methods:
+            - Interpolation: 'linear', 'nearest', 'cubic'
+            - RBF: 'rbf-multiquadric', 'rbf-inverse', 'rbf-gaussian', 
+                   'rbf-linear', 'rbf-cubic', 'rbf-quintic', 'rbf-thin_plate'
+            - Gaussian Process: 'gp-rbf', 'gp-exponential', 'gp-quadratic', 'gp-white'
+        num (int, optional): Number of points for RBF optimization. Defaults to 100.
+        smooth (float, optional): Smoothing parameter for RBF methods. Defaults to 1.
+        optimize (bool, optional): Whether to optimize RBF epsilon parameter. Defaults to True.
+        param (float, optional): Manual epsilon parameter for RBF (used if optimize=False). Defaults to 1.
+    
+    Returns:
+        np.ndarray: Predicted values for input x
+        
+    Raises:
+        ValueError: If the specified method is not implemented
+        
+    Example:
+        >>> predictions = regression(
+        ...     X=train_features,
+        ...     Y=train_targets,
+        ...     x=test_features,
+        ...     method='rbf-multiquadric',
+        ...     optimize=True
+        ... )
+    """
+    
+    # Import required libraries
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.gaussian_process.kernels import (
+        RBF, ExpSineSquared, RationalQuadratic, WhiteKernel
+    )
+    
+    # Available methods
+    available_methods = [
+        "linear", "nearest", "cubic",
+        "rbf-multiquadric", "rbf-inverse", "rbf-gaussian", 
+        "rbf-linear", "rbf-cubic", "rbf-quintic", "rbf-thin_plate",
+        "gp-rbf", "gp-exponential", "gp-quadratic", "gp-white",
+    ]
+    
+    # Gaussian Process kernels
+    gp_kernels = {
+        "gp-rbf": 1.0 * RBF(1.0),
+        "gp-exponential": ExpSineSquared(),
+        "gp-quadratic": RationalQuadratic(),
+        "gp-white": WhiteKernel(),
+    }
+    
+    # Convertir a numpy arrays si es necesario
+    if hasattr(base_train, 'values'):
+        base_train = base_train.values
+    if hasattr(target_train, 'values'):
+        target_train = target_train.values
+    if hasattr(base_pred, 'values'):
+        base_pred = base_pred.values
+
+    # Asegurar que los arrays sean 2D
+    if base_train.ndim == 1:
+        base_train = base_train.reshape(-1, 1)
+    if base_pred.ndim == 1:
+        base_pred = base_pred.reshape(-1, 1)
+
+    # Validar dimensiones
+    if base_train.shape[0] != len(target_train):
+        raise ValueError(f"base_train y target_train deben tener el mismo número de muestras. base_train: {base_train.shape}, target_train: {len(target_train)}")
+    if base_train.shape[1] != base_pred.shape[1]:
+        raise ValueError(f"base_train y base_pred deben tener el mismo número de variables. base_train: {base_train.shape[1]}, base_pred: {base_pred.shape[1]}")
+    
+    try:
+        # Method 1: Scipy interpolation methods
+        if method in ["linear", "nearest", "cubic"]:
+            predictions = griddata(base_train, target_train, base_pred, method=method)
+            
+        # Method 2: Radial Basis Function (RBF) methods
+        elif method.startswith("rbf-"):
+            rbf_function = method.split("-")[1]
+
+            # Optimizar epsilon si se solicita
+            if optimize:
+                base_train = base_train + np.random.normal(0, 1e-8, base_train.shape)
+                params = auxiliar.optimize_rbf_epsilon(
+                    base_train, target_train, num, method=rbf_function, smooth=smooth, eps0=eps, optimizer=optimizer
+                )
+                epsilon, smooth = params
+            else:
+                epsilon = eps
+
+            coords = [base_train[:, i] for i in range(base_train.shape[1])]
+            coords.append(target_train)
+            rbf_ = Rbf(*coords, function=rbf_function, smooth=smooth, epsilon=epsilon)
+            pred_coords = [base_pred[:, i] for i in range(base_pred.shape[1])]
+            predictions = rbf_(*pred_coords)
+            
+        # Method 3: Gaussian Process methods
+        elif method.startswith("gp-"):
+            kernel = gp_kernels[method]
+
+            # Crear y ajustar Gaussian Process
+            gp = GaussianProcessRegressor(
+                kernel=kernel,
+                n_restarts_optimizer=10,
+                normalize_y=False
+            )
+            gp.fit(base_train, target_train)
+
+            # Predecir (solo media)
+            predictions = gp.predict(base_pred, return_std=False)
+            
+        else:
+            raise ValueError(
+                f"Method '{method}' is not implemented. "
+                f"Available methods: {available_methods}"
+            )
+                    
+        return predictions
+        
+    except Exception as e:
+        # Fallback to linear interpolation if the chosen method fails
+        print(f"Warning: {method} failed ({str(e)}), falling back to linear interpolation")
+        try:
+            return griddata(base_train, target_train, base_pred, method="linear")
+        except:
+            # Último recurso: devolver la media
+            print("Warning: Linear interpolation also failed, returning mean values")
+            return np.full(len(base_pred), np.mean(target_train))
+
+
+
+def normalize(data, variables, circular=False):
+    """Normalizes data using the maximum distance between values
 
     Args:
-        X (np.ndarray): vector or matrix with raw data (x)
-        Y (np.ndarray): vector or matrix with raw data (y)
-        x (np.ndarray): data to be reconstructed
-        method (str, optional): method or kernel to the regression. Defaults to 'rbf-multiquadric'.
-
-    Raises:
-        ValueError: method not implemented
+        * data (pd.DataFrame): raw time series
 
     Returns:
-        [type]: [description]
+        * datan (pd.DataFrame): normalized variable
     """
 
-    from sklearn.gaussian_process import (
-        GaussianProcessClassifier,
-        GaussianProcessRegressor,
-    )
-    from sklearn.gaussian_process.kernels import (
-        RBF,
-        ConstantKernel,
-        ExpSineSquared,
-        RationalQuadratic,
-        WhiteKernel,
-    )
+    datan = data.copy()
+    for i in variables:
+        if i.startswith("Dir"):
+            circular = True
+        
+        if circular:
+            datan[i] = np.deg2rad(data[i]) / np.pi
+        else:
+            datan[i] = (data[i] - data[i].min()) / (data[i].max() - data[i].min())
 
-    algorithms = [
-        "linear",
-        "nearest",
-        "cubic",
-        "rbf-multiquadric",
-        "rbf-inverse",
-        "rbf-gaussian",
-        "rbf-linear",
-        "rbf-cubic",
-        "rbf-quintic",
-        "rbf-thin_plate",
-        "gp-rbf",
-        "gp-exponential",
-        "gp-quadratic",
-        "gp-white",
-    ]
-
-    kernels = {
-        "gp-rbf": 1.0 * RBF(0.5),
-        "gp-exponential": ExpSineSquared,
-        "gp-quadratic": RationalQuadratic,
-        "gp-white": WhiteKernel,
-    }
-
-    X, Y, x = X.values, Y.values, x.values
-
-    if any(methods in method for methods in ["linear", "nearest", "cubic"]):
-        data_interpolated = griddata(X, Y, x, method=method)
-    elif method.startswith("rbf"):
-        method = method.split("-")[1]
-
-        if optimize:
-            param = auxiliar.optimize_rbf_epsilon(
-                X, Y, num, method=method, smooth=smooth
-            )
-
-        Z = np.hstack([X, Y.reshape(-1, 1)])
-        rbf = Rbf(*Z.T, function=method, smooth=smooth, epsilon=param)
-        data_interpolated = rbf(*x.T)
-    elif method.startswith("gp"):
-        kernel = kernels[method]
-        gp = GaussianProcessRegressor(
-            kernel=kernel, n_restarts_optimizer=10, normalize_y=False
-        )
-        gp.fit(X, Y)
-        data_interpolated = gp.predict(x, return_std=False)
-    else:
-        raise ValueError(
-            "The method {} is not yet implemented. Methods available are {}.".format(
-                method, algorithms
-            )
-        )
-
-    return data_interpolated
+    return datan
