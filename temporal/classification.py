@@ -128,16 +128,22 @@ def mda(data, variables, n_cases, mvar, fname="cases"):
             if circ:
                 X[:, j] = np.mod(X[:, j], 2)
 
-    # Compute distance matrix considering circular variables
-    D = np.zeros((n, n))
-    for j, v in enumerate(variables):
-        if is_circ[j]:
-            diff = np.abs(X[:, None, j] - X[None, :, j])
-            D += np.minimum(diff, 2 - diff) ** 2
-        else:
-            diff = X[:, None, j] - X[None, :, j]
-            D += diff ** 2
-    D = np.sqrt(D)
+    # Helper function to compute distances from one point to all others using vectorized operations
+    def compute_distances_to_all(point_idx):
+        """Compute distances from point_idx to all other points using vectorized operations."""
+        distances = np.zeros(n)
+        point_data = X[point_idx]
+        
+        for k, is_circular in enumerate(is_circ):
+            if is_circular:
+                diff = np.abs(X[:, k] - point_data[k])
+                distances += np.minimum(diff, 2 - diff) ** 2
+            else:
+                distances += (X[:, k] - point_data[k]) ** 2
+        
+        distances = np.sqrt(distances)
+        distances[point_idx] = -np.inf  # to avoid self-selection
+        return distances
 
     # Iterative selection
     # First point: maximum of the main variable
@@ -146,16 +152,22 @@ def mda(data, variables, n_cases, mvar, fname="cases"):
     sel_pos = [datan.index.get_loc(first_idx)]
 
     # Initialize vector of minimum distances
-    min_dist = D[sel_pos[0], :].copy()
-    min_dist[sel_pos[0]] = -np.inf  # to avoid reselecting
+    min_dist = compute_distances_to_all(sel_pos[0])
 
     for _ in range(1, n_cases):
         next_pos = np.argmax(min_dist)
         ind_.append(datan.index[next_pos])
         sel_pos.append(next_pos)
-        min_dist = np.minimum(min_dist, D[next_pos, :])
-        min_dist[sel_pos] = -np.inf
-        print("Index selected:", next_pos)
+        
+        # Compute distances from the new point to all others
+        new_distances = compute_distances_to_all(next_pos)
+        
+        # Update minimum distances
+        min_dist = np.minimum(min_dist, new_distances)
+        
+        # Mark selected points as unavailable
+        for pos in sel_pos:
+            min_dist[pos] = -np.inf
 
 
     cases = data.loc[ind_, :].copy()
@@ -173,11 +185,10 @@ def reconstruction(
     recons_vars,
     method="rbf-multiquadric",
     smooth=0.5,
-    optimize=True,
+    optimize=False,
     optimizer="local",
     eps=1.0,
-    num=100,
-    scale_data=True,
+    scale_data=False,
     scaler_method="StandardScaler"):
     """
     Reconstructs deep water variables from shallow water data using regression methods.
@@ -196,7 +207,6 @@ def reconstruction(
             Options: 'linear', 'nearest', 'cubic', 'rbf-*', 'gp-*'
         smooth (float, optional): Smoothing parameter for RBF. Defaults to 0.5.
         optimize (bool, optional): Whether to optimize RBF epsilon. Defaults to True.
-        num (int, optional): Number of training samples to use (randomly selected). Defaults to 80% of available data.
         scale_data (bool, optional): If False, data will not be scaled. Defaults to True.
         scaler_method (str, optional): Scaling method for normalization. Defaults to 'StandardScaler'.
 
@@ -221,12 +231,11 @@ def reconstruction(
 
     # Adjust num to 80% of training data size if None or out of bounds
     n_train = base_train.shape[0]
-    if num is None or num >= n_train or num < 2:
-        num = int(0.8 * n_train)
-        if num < 1:
-            num = 1
-        if num >= n_train:
-            num = n_train - 1
+    num = int(0.8 * n_train)
+    if num < 1:
+        num = 1
+    if num >= n_train:
+        num = n_train - 1
 
     if scale_data:
         # Normalize base variables using the same scaler
