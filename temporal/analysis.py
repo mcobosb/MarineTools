@@ -1,4 +1,5 @@
 import datetime
+import os
 import time
 
 import numpy as np
@@ -7,7 +8,6 @@ import scipy.stats as st
 from loguru import logger
 from marinetools.temporal.fdist import statistical_fit as stf
 from marinetools.utils import auxiliar, read, save
-import os
 
 """This file is part of MarineTools.
 
@@ -141,7 +141,9 @@ def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
         logger.info(show_init_message())
     else:
         logger.info("Initializing MarineTools.temporal, v.1.0.0")
-        logger.info("==============================================================================")
+        logger.info(
+            "=============================================================================="
+        )
     logger.info("Current Time = %s\n" % current_time)
 
     # Remove nan in the input timeseries
@@ -262,8 +264,8 @@ def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
         if verbose:
             logger.info("MARGINAL NON-STATIONARY FIT")
             logger.info(
-            "=============================================================================="
-        )
+                "=============================================================================="
+            )
         term = (
             "\nNon-stationary fit of "
             + parameters["var"]
@@ -278,7 +280,9 @@ def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
         if verbose:
             logger.info(term)
             logger.info(
-                "with the " + parameters["optimization"]["method"] + " optimization method."
+                "with the "
+                + parameters["optimization"]["method"]
+                + " optimization method."
             )
             logger.info(
                 "=============================================================================="
@@ -344,13 +348,13 @@ def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
 
     if not "file_name" in parameters.keys():
         generate_outputfilename(parameters)
-    
+
     if "folder_name" in parameters.keys():
         os.makedirs(parameters["folder_name"], exist_ok=True)
         parameters["file_name"] = os.path.join(
             parameters["folder_name"], parameters["file_name"]
         )
-        
+
     del parameters["weighted"]["values"]
     save.to_json(parameters, parameters["file_name"])
 
@@ -830,8 +834,8 @@ def check_marginal_params(param: dict):
 
     if param["verbose"]:
         logger.info("{} - Verbose is set to True.".format(str(k)))
-        k += 1  
-    
+        k += 1
+
     if k == 1:
         logger.info("None.")
 
@@ -889,7 +893,7 @@ def check_marginal_params(param: dict):
 
 
 def nanoise(
-    data: pd.DataFrame, variable: str, remove: bool = False, filter_: str = None
+    data: pd.DataFrame, variables: str, remove: bool = False, filter_: str = None
 ):
     """Adds small random noise to the selected variable(s) in a time series for better estimations.
 
@@ -910,36 +914,30 @@ def nanoise(
 
     df_out = data.copy()
 
-    if isinstance(variable, str):
-        variable = [variable]
+    # Remove duplicate values
+    df_out = df_out[~df_out.index.duplicated(keep="first")]
 
-    # Optional filtering before adding noise
-    if filter_ is not None:
-        filtered_idx = df_out.query(filter_).index
-    else:
-        filtered_idx = df_out.index
-
-
-    for var_ in variable:
+    # Multi-variable path (original loop)
+    for var_ in variables:
         # Only operate on non-NaN values in the filtered subset
-        idx_valid = df_out.loc[filtered_idx, var_].dropna().index
+        idx_valid = df_out[var_].dropna().index
         if len(idx_valid) == 0:
-            raise ValueError(f"Input time series for variable '{var_}' is empty after filtering.")
+            raise ValueError(
+                f"Input time series for variable '{var_}' is empty after filtering."
+            )
         unique_vals = np.sort(df_out.loc[idx_valid, var_].unique())
         if len(unique_vals) > 1:
             increments = st.mode(np.diff(unique_vals))[0]
         else:
             increments = 1e-6  # fallback small noise if all values are identical
         noise = np.random.rand(len(idx_valid)) * increments
-        df_out.loc[idx_valid, var_] += noise
+
+        # More robust assignment to avoid broadcasting issues
+        values_with_noise = df_out.loc[idx_valid, var_].values + noise
+        df_out.loc[idx_valid, var_] = values_with_noise
 
     # Eliminar todos los NaNs
     df_out = df_out.dropna()
-
-
-    # Optionally remove filtered rows from output
-    if remove and filter_ is not None:
-        df_out = df_out.drop(filtered_idx)
 
     return df_out
 
@@ -1181,7 +1179,6 @@ def storm_properties(data, cols, info):
     return durs_storm_calm
 
 
-
 def dependencies(df: pd.DataFrame, param: dict):
     """Computes the temporal dependency using a VAR model (Solari & van Gelder, 2011;
     Solari & Losada, 2011).
@@ -1416,9 +1413,9 @@ def varfit(data: np.ndarray, order: int):
         * par_dt (dict): parameter of the temporal dependency using VAR model
     """
 
+    import matplotlib.pyplot as plt
     from statsmodels.tsa.ar_model import AutoReg as AR
     from statsmodels.tsa.vector_ar.var_model import VAR
-    import matplotlib.pyplot as plt
 
     # data.plot()
     # plt.show()
@@ -1427,7 +1424,7 @@ def varfit(data: np.ndarray, order: int):
     [dim, t] = np.shape(data_)
     t = t - order
     bic, r2adj = np.zeros(order), []
-    
+
     par_dt = [list() for i in range(order)]
     for p in range(1, order + 1):
         # Create the matrix of input data for p-order
@@ -1605,7 +1602,7 @@ def iso_indicators(
     param: dict = None,
     data: pd.DataFrame = None,
     daysWindowsLength: int = 14,
-    pemp: list = None, 
+    pemp: list = None,
 ):
     """Compute indicator of the iso-probability lines of the non-stationary cdf
 
@@ -1650,25 +1647,17 @@ def iso_indicators(
     n = np.linspace(0, 1, dt)
     if pemp is None:
         xp, pemp = auxiliar.nonstationary_ecdf(
-            reference,
-            variable,
-            wlen=daysWindowsLength / (365.25 * T),
-            pemp = pemp
+            reference, variable, wlen=daysWindowsLength / (365.25 * T), pemp=pemp
         )
     else:
         xp, pemp = auxiliar.nonstationary_ecdf(
-            reference,
-            variable,
-            wlen=daysWindowsLength / (365.25 * T)
-            )
+            reference, variable, wlen=daysWindowsLength / (365.25 * T)
+        )
 
     # A empirical model
     if emp_non_st:
         data_check, _ = auxiliar.nonstationary_ecdf(
-            data,
-            variable,
-            wlen=daysWindowsLength / (365.25 * T),
-            pemp = pemp
+            data, variable, wlen=daysWindowsLength / (365.25 * T), pemp=pemp
         )
     else:
         # A theoretical model
@@ -1716,10 +1705,14 @@ def iso_indicators(
                 results.loc[j, indicator] = auxiliar.rmse(xp[j], data_check[j])
         elif indicator == "maximum_absolute_error":
             for j in pemp:
-                results.loc[j, indicator] = auxiliar.maximum_absolute_error(xp[j], data_check[j])
+                results.loc[j, indicator] = auxiliar.maximum_absolute_error(
+                    xp[j], data_check[j]
+                )
         elif indicator == "mean_absolute_error":
             for j in pemp:
-                results.loc[j, indicator]= auxiliar.mean_absolute_error(xp[j], data_check[j])
+                results.loc[j, indicator] = auxiliar.mean_absolute_error(
+                    xp[j], data_check[j]
+                )
 
     return results
 
