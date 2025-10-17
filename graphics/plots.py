@@ -164,8 +164,6 @@ def storm_timeseries(
     _, ax = plt.subplots(
         len(variables), 1, figsize=(12, len(variables) * 2), sharex=True
     )
-    if not isinstance(ax, list):
-        ax = [ax]
 
     for i, j in enumerate(variables):
         if isinstance(df_obs, dict):
