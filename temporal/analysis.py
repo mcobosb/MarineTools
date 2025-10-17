@@ -1437,15 +1437,18 @@ def varfit(data: np.ndarray, order: int):
         par_dt[p - 1], bic[p - 1], r2a = varfit_OLS(y, z)
         r2adj.append(r2a)
         if dim == 1:
-            model = AR(data, p)
+            # Use values only to avoid datetime index issues
+            model = AR(data.iloc[:, 0].values, lags=p)
+            res = model.fit()
         else:
-            model = VAR(data, p)
-        res = model.fit()
+            # Use values only to avoid datetime index issues
+            model = VAR(data.values)
+            res = model.fit(maxlags=p)
         # print(res.summary())
 
         # Computed using statmodels
-        par_dt[p - 1]["B"] = res.params.values.T
-        par_dt[p - 1]["U"] = y - np.dot(res.params.values.T, z)
+        par_dt[p - 1]["B"] = res.params.T
+        par_dt[p - 1]["U"] = y - np.dot(res.params.T, z)
         # Estimate de covariance matrix
         par_dt[p - 1]["Q"] = np.cov(par_dt[p - 1]["U"])
         bic[p - 1] = res.bic
@@ -1539,7 +1542,7 @@ def varfit_OLS(y, z):
 
     # aic = df['dim']*np.log(np.sum(np.abs(y - np.dot(df['B'], z)))) + 2*nel
     # Compute the BIC
-    bic = -2 * llf + np.log(np.size(y)) * np.size(np.hstack((df["B"][0], df["Q"])))
+    bic = -2 * llf + np.log(np.size(y)) * np.size(np.hstack((df["B"], df["Q"])))
 
     return df, bic, R2adj.tolist()
 
