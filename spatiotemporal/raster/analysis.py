@@ -1,23 +1,16 @@
 from logging import logger
-from operator import index
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import xarray as xr
 from glob2 import glob
 from marinetools.utils.read import asci_tiff
 
-from .functions import boundary_polygon  # load_monthly_index,
 from .functions import (
     band,
     calculate_grid_angle_and_create_rotated_mesh,
-    obtain_lines,
-    pick_first_season_file,
     refinement,
-    save_isolines,
     save_matrix_to_netcdf,
-    sieve,
 )
 
 
