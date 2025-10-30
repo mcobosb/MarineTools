@@ -34,6 +34,13 @@ def max_moving(data: pd.DataFrame, dur: int):
         if idx == data.index[k + int(dur / 2)]:
             id_.append(idx)
 
+    if id_ is []:
+        for k in range(0, n - dur):
+            # Find the index of the minimum value within the current window
+            idx = data.iloc[k : k + dur + 1].idxmin()
+            # Only select the peak if it is at the center of the window
+            if idx == data.index[k + int(dur / 2)]:
+                id_.append(idx)
     # Create a DataFrame with the selected peaks
     results = pd.DataFrame(data.loc[id_], index=id_)
     return results
