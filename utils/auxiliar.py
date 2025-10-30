@@ -27,7 +27,7 @@ def max_moving(data: pd.DataFrame, dur: int):
     n = len(data)
     id_ = []  # List to store indices of detected peaks
     # Slide a window of length 'dur' across the data
-    for k in range(0, n - dur + 1):
+    for k in range(0, n - dur):
         # Find the index of the maximum value within the current window
         idx = data.iloc[k : k + dur + 1].idxmax()
         # Only select the peak if it is at the center of the window
