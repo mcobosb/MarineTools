@@ -156,7 +156,7 @@ def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
                 "Dataset has negative values. Check that the chosen distribution functions adequately fit negative values."
             )
 
-    if ((parameters["type"] == "circular") & ("ws_ps" not in parameters.keys())):
+    if (parameters["type"] == "circular") & ("ws_ps" not in parameters.keys()):
         # Transform angles to radian
         df = np.deg2rad(df)
         # Compute the percentile of change between probability models
@@ -172,6 +172,10 @@ def marginalfit(df: pd.DataFrame, parameters: dict, verbose: bool = False):
     parameters["verbose"] = verbose
     # Check that the input dictionary is well defined
     parameters = check_marginal_params(parameters)
+
+    # Transform angles into radians
+    if parameters["type"] == "circular":
+        df[parameters["var"]] = np.deg2rad(df[parameters["var"]])
 
     # Normalized the data using one of the normalization method if it is required
     if parameters["transform"]["make"]:
