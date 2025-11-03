@@ -761,7 +761,17 @@ def check_marginal_params(param: dict):
         logger.info("{} - Type is set to 'circular'.".format(str(k)))
     else:
         logger.info("{} - Type is set to 'linear'.".format(str(k)))
+
+    if param["type"] == "circular":
+        for fun_ in param["fun"].values():
+            if fun_.name not in ["vonmises", "wrap_cauchy", "wrap_norm", "norm"]:
+                raise ValueError(
+                    "For circular variables, only vonmises, wrap_cauchy, wrap_norm and norm PMs are allowed. Got {}.".format(
+                        fun_.name
+                    )
+                )
     k += 1
+
 
     if (any(np.asarray(param["ws_ps"]) > 1) or any(np.asarray(param["ws_ps"]) < 0)) & (
         not param["piecewise"]
