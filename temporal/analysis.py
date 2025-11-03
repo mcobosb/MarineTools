@@ -508,7 +508,7 @@ def check_marginal_params(param: dict):
     if (not "method" in param["basis_function"]) & param["non_stat_analysis"]:
         raise ValueError("Method is required when non_stat_analysis is True.")
     elif param["non_stat_analysis"]:
-        if param["basis_function"]["no_terms"] == 0:
+        if ((not "no_terms") & (not "periods")) in param["basis_function"].keys():
             raise ValueError(
                 "Number of period higher than zero is required when non_stat_analysis is True."
             )
