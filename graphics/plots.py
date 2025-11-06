@@ -4,6 +4,7 @@ from itertools import product
 import cmocean
 import matplotlib
 import matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
 import numpy as np
 import pandas as pd
 import scipy.stats as st
@@ -2034,8 +2035,6 @@ def heatmap(
             matrix and Q for the covariance matrix
         * file_name: name of the oputput file
     """
-    fig, ax = handle_axis(ax)
-
     # Plot the heatmap
     if minmax == "minimax":
         im = ax.imshow(data, cmap=cmap, vmin=np.min(data), vmax=np.max(data))
@@ -2043,6 +2042,9 @@ def heatmap(
         im = ax.imshow(data, cmap=cmap, vmin=minmax[0], vmax=minmax[1])
     elif minmax == "log":
         im = ax.imshow(data, cmap=cmap, norm=LogNorm(vmin=0.001, vmax=10))
+    else:
+        im = ax.imshow(data, cmap=cmap)
+
 
     # We want to show all ticks ...
     ax.set_xticks(np.arange(np.asarray(data).shape[1]))
@@ -2071,7 +2073,7 @@ def heatmap(
     ax.tick_params(top=False, bottom=True, labeltop=False, labelbottom=True)
 
     # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=0, ha="right", rotation_mode="anchor")
+    plt.setp(ax.get_xticklabels(), rotation=90, ha="right", rotation_mode="anchor")
 
     # Turn spines off and create white grid.
     for edge, spine in ax.spines.items():
