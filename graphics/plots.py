@@ -2035,6 +2035,9 @@ def heatmap(
             matrix and Q for the covariance matrix
         * file_name: name of the oputput file
     """
+
+    _, ax = handle_axis(ax)
+    
     # Plot the heatmap
     if minmax == "minimax":
         im = ax.imshow(data, cmap=cmap, vmin=np.min(data), vmax=np.max(data))
